@@ -265,7 +265,7 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, optimizer_
 @click.option('--multi_gpu', is_flag=True, help='use multiple GPU')
 @click.option('--log-interval', type=int, default=200, help='report interval')
 @click.option('--eval-interval', type=int, default=4000, help='evaluation interval')
-@click.option('--work_dir', default='LM-TFM', type=str, help='experiment directory.')
+@click.option('--work_dir', default='./models/LM-TFM', type=str, help='experiment directory.')
 @click.option('--restart', is_flag=True, default=False, help='restart training from the saved checkpoint')
 @click.option('--restart_dir', type=str, default='', help='restart dir')
 @click.option('--debug', is_flag=True, help='run in debug mode (do not create exp dir)')

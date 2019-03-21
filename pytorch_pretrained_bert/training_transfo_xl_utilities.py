@@ -64,6 +64,7 @@ class BalancedDataParallel(DataParallel):
             device_ids = self.device_ids[1:]
         else:
             device_ids = self.device_ids
+            
         inputs, kwargs = self.scatter(inputs, kwargs, device_ids)
         if len(self.device_ids) == 1:
             return self.module(*inputs[0], **kwargs[0])
