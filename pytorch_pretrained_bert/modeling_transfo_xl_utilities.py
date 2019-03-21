@@ -28,6 +28,7 @@ import torch.nn.functional as F
 # CUDA_MAJOR = int(torch.version.cuda.split('.')[0])
 # CUDA_MINOR = int(torch.version.cuda.split('.')[1])
 
+
 class ProjectedAdaptiveLogSoftmax(nn.Module):
     def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1,
                  keep_order=False):
@@ -114,10 +115,10 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             logit = self._compute_logit(hidden, self.out_layers[0].weight,
                                         self.out_layers[0].bias, self.out_projs[0])
             if target is not None:
-                output = -F.log_softmax(logit, dim=-1) \
+                out = -F.log_softmax(logit, dim=-1) \
                         .gather(1, target.unsqueeze(1)).squeeze(1)
             else:
-                output = F.log_softmax(logit, dim=-1)
+                out = F.log_softmax(logit, dim=-1)
         else:
             # construct weights and biases
             weights, biases = [], []
@@ -193,7 +194,6 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     offset += logprob_i.size(0)
 
         return out
-
 
     def log_prob(self, hidden):
         r""" Computes log probabilities for all :math:`n\_classes`
@@ -298,6 +298,7 @@ class LogUniformSampler(object):
             true_log_probs = self.log_q[labels].to(device)
             samp_log_probs = self.log_q[neg_samples].to(device)
             return true_log_probs, samp_log_probs, neg_samples
+
 
 def sample_logits(embedding, bias, labels, inputs, sampler):
     """

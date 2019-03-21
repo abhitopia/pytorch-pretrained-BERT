@@ -54,6 +54,7 @@ CONFIG_NAME = 'config.json'
 WEIGHTS_NAME = 'pytorch_model.bin'
 TF_WEIGHTS_NAME = 'model.ckpt'
 
+
 def build_tf_to_pytorch_map(model, config):
     """ A map of modules from TF to PyTorch.
         This time I use a map to keep the PyTorch model as identical to the original PyTorch model as possible.
@@ -66,9 +67,9 @@ def build_tf_to_pytorch_map(model, config):
             "transformer/adaptive_softmax/cutoff_0/cluster_W": model.crit.cluster_weight,
             "transformer/adaptive_softmax/cutoff_0/cluster_b": model.crit.cluster_bias})
         for i, (out_l, proj_l, tie_proj) in enumerate(zip(
-                                model.crit.out_layers,
-                                model.crit.out_projs,
-                                config.tie_projs)):
+                model.crit.out_layers,
+                model.crit.out_projs,
+                config.tie_projs)):
             layer_str = "transformer/adaptive_softmax/cutoff_%d/" % i
             if config.tie_weight:
                 tf_to_pt_map.update({
@@ -82,7 +83,7 @@ def build_tf_to_pytorch_map(model, config):
             if not tie_proj:
                 tf_to_pt_map.update({
                     layer_str + 'proj': proj_l
-                    })
+                })
         # Now load the rest of the transformer
         model = model.transformer
 
@@ -92,7 +93,7 @@ def build_tf_to_pytorch_map(model, config):
         tf_to_pt_map.update({
             layer_str + 'lookup_table': embed_l.weight,
             layer_str + 'proj_W': proj_l
-            })
+        })
 
     # Transformer blocks
     for i, b in enumerate(model.layers):
@@ -126,6 +127,7 @@ def build_tf_to_pytorch_map(model, config):
         'transformer/r_w_bias': r_w_list})
     return tf_to_pt_map
 
+
 def load_tf_weights_in_transfo_xl(model, config, tf_path):
     """ Load tf checkpoints in a pytorch model
     """
@@ -134,7 +136,7 @@ def load_tf_weights_in_transfo_xl(model, config, tf_path):
         import tensorflow as tf
     except ImportError:
         print("Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see "
-            "https://www.tensorflow.org/install/ for installation instructions.")
+              "https://www.tensorflow.org/install/ for installation instructions.")
         raise
     # Build TF to PyTorch weights loading map
     tf_to_pt_map = build_tf_to_pytorch_map(model, config)
@@ -185,6 +187,7 @@ def load_tf_weights_in_transfo_xl(model, config, tf_path):
 class TransfoXLConfig(object):
     """Configuration class to store the configuration of a `TransfoXLModel`.
     """
+
     def __init__(self,
                  vocab_size_or_config_json_file=267735,
                  cutoffs=[20000, 40000, 200000],
@@ -240,7 +243,7 @@ class TransfoXLConfig(object):
             dropout: The dropout probabilitiy for all fully connected
                 layers in the embeddings, encoder, and pooler.
             dropatt: The dropout ratio for the attention probabilities.
-            untie_r: untie relative position biases           
+            untie_r: untie relative position biases
             embd_pdrop: The dropout ratio for the embeddings.
             init: parameter initializer to use
             init_range: parameters initialized by U(-init_range, init_range).
@@ -248,7 +251,7 @@ class TransfoXLConfig(object):
             init_std: parameters initialized by N(0, init_std)
         """
         if isinstance(vocab_size_or_config_json_file, str) or (sys.version_info[0] == 2
-                        and isinstance(vocab_size_or_config_json_file, unicode)):
+                                                               and isinstance(vocab_size_or_config_json_file, unicode)):
             with open(vocab_size_or_config_json_file, "r", encoding='utf-8') as reader:
                 json_config = json.loads(reader.read())
             for key, value in json_config.items():
@@ -331,9 +334,9 @@ class PositionalEmbedding(nn.Module):
         pos_emb = torch.cat([sinusoid_inp.sin(), sinusoid_inp.cos()], dim=-1)
 
         if bsz is not None:
-            return pos_emb[:,None,:].expand(-1, bsz, -1)
+            return pos_emb[:, None, :].expand(-1, bsz, -1)
         else:
-            return pos_emb[:,None,:]
+            return pos_emb[:, None, :]
 
 
 class PositionwiseFF(nn.Module):
@@ -357,22 +360,23 @@ class PositionwiseFF(nn.Module):
 
     def forward(self, inp):
         if self.pre_lnorm:
-            ##### layer normalization + positionwise feed-forward
+            # layer normalization + positionwise feed-forward
             core_out = self.CoreNet(self.layer_norm(inp))
 
-            ##### residual connection
+            # residual connection
             output = core_out + inp
         else:
-            ##### positionwise feed-forward
+            # positionwise feed-forward
             core_out = self.CoreNet(inp)
 
-            ##### residual connection + layer normalization
+            # residual connection + layer normalization
             output = self.layer_norm(inp + core_out)
 
         return output
 
+
 class MultiHeadAttn(nn.Module):
-    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0, 
+    def __init__(self, n_head, d_model, d_head, dropout, dropatt=0,
                  pre_lnorm=False, r_r_bias=None, r_w_bias=None):
         super(MultiHeadAttn, self).__init__()
 
@@ -394,7 +398,7 @@ class MultiHeadAttn(nn.Module):
 
         self.pre_lnorm = pre_lnorm
 
-        if r_r_bias is None or r_w_bias is None: # Biases are not shared
+        if r_r_bias is None or r_w_bias is None:  # Biases are not shared
             self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
             self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
         else:
@@ -402,7 +406,7 @@ class MultiHeadAttn(nn.Module):
             self.r_w_bias = r_w_bias
 
     def forward(self, h, attn_mask=None, mems=None):
-        ##### multihead attention
+        # multihead attention
         # [hlen x bsz x n_head x d_head]
 
         if mems is not None:
@@ -411,7 +415,7 @@ class MultiHeadAttn(nn.Module):
             c = h
 
         if self.pre_lnorm:
-            ##### layer normalization
+            # layer normalization
             c = self.layer_norm(c)
 
         head_q = self.q_net(h)
@@ -426,9 +430,9 @@ class MultiHeadAttn(nn.Module):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[None,:,:,None], -float('inf'))
+                attn_score.masked_fill_(attn_mask[None, :, :, None], -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:,:,:,None], -float('inf'))
+                attn_score.masked_fill_(attn_mask[:, :, :, None], -float('inf'))
 
         # [qlen x klen x bsz x n_head]
         attn_prob = F.softmax(attn_score, dim=1)
@@ -439,18 +443,19 @@ class MultiHeadAttn(nn.Module):
         attn_vec = attn_vec.contiguous().view(
             attn_vec.size(0), attn_vec.size(1), self.n_head * self.d_head)
 
-        ##### linear projection
+        # linear projection
         attn_out = self.o_net(attn_vec)
         attn_out = self.drop(attn_out)
 
         if self.pre_lnorm:
-            ##### residual connection
+            # residual connection
             output = h + attn_out
         else:
-            ##### residual connection + layer normalization
+            # residual connection + layer normalization
             output = self.layer_norm(h + attn_out)
 
         return output
+
 
 class RelMultiHeadAttn(nn.Module):
     def __init__(self, n_head, d_model, d_head, dropout, dropatt=0,
@@ -475,7 +480,7 @@ class RelMultiHeadAttn(nn.Module):
 
         self.pre_lnorm = pre_lnorm
 
-        if r_r_bias is None or r_w_bias is None: # Biases are not shared
+        if r_r_bias is None or r_w_bias is None:  # Biases are not shared
             self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
             self.r_w_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
         else:
@@ -485,8 +490,8 @@ class RelMultiHeadAttn(nn.Module):
     def _parallelogram_mask(self, h, w, left=False):
         mask = torch.ones((h, w)).byte()
         m = min(h, w)
-        mask[:m,:m] = torch.triu(mask[:m,:m])
-        mask[-m:,-m:] = torch.tril(mask[-m:,-m:])
+        mask[:m, :m] = torch.triu(mask[:m, :m])
+        mask[-m:, -m:] = torch.tril(mask[-m:, -m:])
 
         if left:
             return mask
@@ -495,8 +500,8 @@ class RelMultiHeadAttn(nn.Module):
 
     def _shift(self, x, qlen, klen, mask, left=False):
         if qlen > 1:
-            zero_pad = torch.zeros((x.size(0), qlen-1, x.size(2), x.size(3)),
-                                    device=x.device, dtype=x.dtype)
+            zero_pad = torch.zeros((x.size(0), qlen - 1, x.size(2), x.size(3)),
+                                   device=x.device, dtype=x.dtype)
         else:
             zero_pad = torch.zeros(0, device=x.device, dtype=x.dtype)
 
@@ -506,8 +511,8 @@ class RelMultiHeadAttn(nn.Module):
         else:
             x_padded = torch.cat([x, zero_pad], dim=1).expand(qlen, -1, -1, -1)
 
-        x = x_padded.masked_select(mask[:,:,None,None]) \
-                    .view(qlen, klen, x.size(2), x.size(3))
+        x = x_padded.masked_select(mask[:, :, None, None]) \
+            .view(qlen, klen, x.size(2), x.size(3))
 
         return x
 
@@ -523,12 +528,13 @@ class RelMultiHeadAttn(nn.Module):
 
         if zero_triu:
             ones = torch.ones((x.size(0), x.size(1)))
-            x = x * torch.tril(ones, x.size(1) - x.size(0))[:,:,None,None]
+            x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, None, None]
 
         return x
 
     def forward(self, w, r, attn_mask=None, mems=None):
         raise NotImplementedError
+
 
 class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
     def __init__(self, *args, **kwargs):
@@ -560,56 +566,57 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
 
         klen = w_head_k.size(0)
 
-        w_head_q = w_head_q.view(qlen, bsz, self.n_head, self.d_head)           # qlen x bsz x n_head x d_head
-        w_head_k = w_head_k.view(klen, bsz, self.n_head, self.d_head)           # qlen x bsz x n_head x d_head
-        w_head_v = w_head_v.view(klen, bsz, self.n_head, self.d_head)           # qlen x bsz x n_head x d_head
+        w_head_q = w_head_q.view(qlen, bsz, self.n_head, self.d_head)  # qlen x bsz x n_head x d_head
+        w_head_k = w_head_k.view(klen, bsz, self.n_head, self.d_head)  # qlen x bsz x n_head x d_head
+        w_head_v = w_head_v.view(klen, bsz, self.n_head, self.d_head)  # qlen x bsz x n_head x d_head
 
-        r_head_k = r_head_k.view(rlen, self.n_head, self.d_head)                # qlen x n_head x d_head
+        r_head_k = r_head_k.view(rlen, self.n_head, self.d_head)  # qlen x n_head x d_head
 
-        #### compute attention score
-        rw_head_q = w_head_q + self.r_w_bias                                    # qlen x bsz x n_head x d_head
-        AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))             # qlen x klen x bsz x n_head
+        # compute attention score
+        rw_head_q = w_head_q + self.r_w_bias  # qlen x bsz x n_head x d_head
+        AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))  # qlen x klen x bsz x n_head
 
         rr_head_q = w_head_q + self.r_r_bias
-        BD = torch.einsum('ibnd,jnd->ijbn', (rr_head_q, r_head_k))              # qlen x klen x bsz x n_head
+        BD = torch.einsum('ibnd,jnd->ijbn', (rr_head_q, r_head_k))  # qlen x klen x bsz x n_head
         BD = self._rel_shift(BD)
 
         # [qlen x klen x bsz x n_head]
         attn_score = AC + BD
         attn_score.mul_(self.scale)
 
-        #### compute attention probability
+        # compute attention probability
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
                 attn_score = attn_score.float().masked_fill(
-                    attn_mask[None,:,:,None], -1e30).type_as(attn_score)
+                    attn_mask[None, :, :, None], -1e30).type_as(attn_score)
             elif attn_mask.dim() == 3:
                 attn_score = attn_score.float().masked_fill(
-                    attn_mask[:,:,:,None], -1e30).type_as(attn_score)
+                    attn_mask[:, :, :, None], -1e30).type_as(attn_score)
 
         # [qlen x klen x bsz x n_head]
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
 
-        #### compute attention vector
+        # compute attention vector
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
 
         # [qlen x bsz x n_head x d_head]
         attn_vec = attn_vec.contiguous().view(
             attn_vec.size(0), attn_vec.size(1), self.n_head * self.d_head)
 
-        ##### linear projection
+        # linear projection
         attn_out = self.o_net(attn_vec)
         attn_out = self.drop(attn_out)
 
         if self.pre_lnorm:
-            ##### residual connection
+            # residual connection
             output = w + attn_out
         else:
-            ##### residual connection + layer normalization
+            # residual connection + layer normalization
             output = self.layer_norm(w + attn_out)
 
         return output
+
 
 class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
     def __init__(self, *args, **kwargs):
@@ -645,72 +652,73 @@ class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
         w_head_v = w_head_v.view(klen, bsz, self.n_head, self.d_head)
 
         if klen > r_emb.size(0):
-            r_emb_pad = r_emb[0:1].expand(klen-r_emb.size(0), -1, -1)
+            r_emb_pad = r_emb[0:1].expand(klen - r_emb.size(0), -1, -1)
             r_emb = torch.cat([r_emb_pad, r_emb], 0)
-            r_bias_pad = r_bias[0:1].expand(klen-r_bias.size(0), -1)
+            r_bias_pad = r_bias[0:1].expand(klen - r_bias.size(0), -1)
             r_bias = torch.cat([r_bias_pad, r_bias], 0)
         else:
             r_emb = r_emb[-klen:]
             r_bias = r_bias[-klen:]
 
-        #### compute attention score
-        rw_head_q = w_head_q + r_w_bias[None]                                   # qlen x bsz x n_head x d_head
+        # compute attention score
+        rw_head_q = w_head_q + r_w_bias[None]  # qlen x bsz x n_head x d_head
 
-        AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))             # qlen x klen x bsz x n_head
-        B_ = torch.einsum('ibnd,jnd->ijbn', (w_head_q, r_emb))                  # qlen x klen x bsz x n_head
-        D_ = r_bias[None, :, None]                                              # 1    x klen x 1   x n_head
+        AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))  # qlen x klen x bsz x n_head
+        B_ = torch.einsum('ibnd,jnd->ijbn', (w_head_q, r_emb))  # qlen x klen x bsz x n_head
+        D_ = r_bias[None, :, None]  # 1    x klen x 1   x n_head
         BD = self._rel_shift(B_ + D_)
 
         # [qlen x klen x bsz x n_head]
         attn_score = AC + BD
         attn_score.mul_(self.scale)
 
-        #### compute attention probability
+        # compute attention probability
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[None,:,:,None], -float('inf'))
+                attn_score.masked_fill_(attn_mask[None, :, :, None], -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:,:,:,None], -float('inf'))
+                attn_score.masked_fill_(attn_mask[:, :, :, None], -float('inf'))
 
         # [qlen x klen x bsz x n_head]
         attn_prob = F.softmax(attn_score, dim=1)
         attn_prob = self.dropatt(attn_prob)
 
-        #### compute attention vector
+        # compute attention vector
         attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
 
         # [qlen x bsz x n_head x d_head]
         attn_vec = attn_vec.contiguous().view(
             attn_vec.size(0), attn_vec.size(1), self.n_head * self.d_head)
 
-        ##### linear projection
+        # linear projection
         attn_out = self.o_net(attn_vec)
         attn_out = self.drop(attn_out)
 
         if self.pre_lnorm:
-            ##### residual connection
+            # residual connection
             output = w + attn_out
         else:
-            ##### residual connection + layer normalization
+            # residual connection + layer normalization
             output = self.layer_norm(w + attn_out)
 
         return output
+
 
 class DecoderLayer(nn.Module):
     def __init__(self, n_head, d_model, d_head, d_inner, dropout, **kwargs):
         super(DecoderLayer, self).__init__()
 
         self.dec_attn = MultiHeadAttn(n_head, d_model, d_head, dropout, **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, 
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout,
                                      pre_lnorm=kwargs.get('pre_lnorm'))
 
     def forward(self, dec_inp, dec_attn_mask=None, mems=None):
-
         output = self.dec_attn(dec_inp, attn_mask=dec_attn_mask,
                                mems=mems)
         output = self.pos_ff(output)
 
         return output
+
 
 class RelLearnableDecoderLayer(nn.Module):
     def __init__(self, n_head, d_model, d_head, d_inner, dropout,
@@ -718,12 +726,11 @@ class RelLearnableDecoderLayer(nn.Module):
         super(RelLearnableDecoderLayer, self).__init__()
 
         self.dec_attn = RelLearnableMultiHeadAttn(n_head, d_model, d_head, dropout,
-                                         **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, 
+                                                  **kwargs)
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout,
                                      pre_lnorm=kwargs.get('pre_lnorm'))
 
     def forward(self, dec_inp, r_emb, r_w_bias, r_bias, dec_attn_mask=None, mems=None):
-
         output = self.dec_attn(dec_inp, r_emb, r_w_bias, r_bias,
                                attn_mask=dec_attn_mask,
                                mems=mems)
@@ -731,18 +738,18 @@ class RelLearnableDecoderLayer(nn.Module):
 
         return output
 
+
 class RelPartialLearnableDecoderLayer(nn.Module):
     def __init__(self, n_head, d_model, d_head, d_inner, dropout,
                  **kwargs):
         super(RelPartialLearnableDecoderLayer, self).__init__()
 
         self.dec_attn = RelPartialLearnableMultiHeadAttn(n_head, d_model,
-                            d_head, dropout, **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, 
+                                                         d_head, dropout, **kwargs)
+        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout,
                                      pre_lnorm=kwargs.get('pre_lnorm'))
 
     def forward(self, dec_inp, r, dec_attn_mask=None, mems=None):
-
         output = self.dec_attn(dec_inp, r,
                                attn_mask=dec_attn_mask,
                                mems=mems)
@@ -752,7 +759,7 @@ class RelPartialLearnableDecoderLayer(nn.Module):
 
 
 class AdaptiveEmbedding(nn.Module):
-    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1, 
+    def __init__(self, n_token, d_embed, d_proj, cutoffs, div_val=1,
                  sample_softmax=False):
         super(AdaptiveEmbedding, self).__init__()
 
@@ -771,27 +778,27 @@ class AdaptiveEmbedding(nn.Module):
         self.emb_projs = nn.ParameterList()
         if div_val == 1:
             self.emb_layers.append(
-                nn.Embedding(n_token, d_embed, sparse=sample_softmax>0)
+                nn.Embedding(n_token, d_embed, sparse=sample_softmax > 0)
             )
             if d_proj != d_embed:
                 self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
         else:
             for i in range(len(self.cutoffs)):
-                l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i+1]
+                l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
                 d_emb_i = d_embed // (div_val ** i)
-                self.emb_layers.append(nn.Embedding(r_idx-l_idx, d_emb_i))
+                self.emb_layers.append(nn.Embedding(r_idx - l_idx, d_emb_i))
                 self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
 
     def forward(self, inp):
         if self.div_val == 1:
             embed = self.emb_layers[0](inp)
             if self.d_proj != self.d_embed:
-                embed  = F.linear(embed, self.emb_projs[0])
+                embed = F.linear(embed, self.emb_projs[0])
         else:
             param = next(self.parameters())
             inp_flat = inp.view(-1)
-            emb_flat = torch.zeros([inp_flat.size(0), self.d_proj], 
-                dtype=param.dtype, device=param.device)
+            emb_flat = torch.zeros([inp_flat.size(0), self.d_proj],
+                                   dtype=param.dtype, device=param.device)
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
 
@@ -819,6 +826,7 @@ class TransfoXLPreTrainedModel(nn.Module):
     """ An abstract class to handle weights initialization and
         a simple interface for dowloading and loading pretrained models.
     """
+
     def __init__(self, config, *inputs, **kwargs):
         super(TransfoXLPreTrainedModel, self).__init__()
         if not isinstance(config, TransfoXLConfig):
@@ -870,7 +878,7 @@ class TransfoXLPreTrainedModel(nn.Module):
                 nn.init.normal_(m.weight, 1.0, self.config.init_std)
             if hasattr(m, 'bias') and m.bias is not None:
                 self.init_bias(m.bias)
-        elif classname.find('TransformerLM') != -1:
+        elif classname.find('TransfoXLModel') != -1:
             if hasattr(m, 'r_emb'):
                 self.init_weight(m.r_emb)
             if hasattr(m, 'r_w_bias'):
@@ -940,7 +948,8 @@ class TransfoXLPreTrainedModel(nn.Module):
         # Instantiate model.
         model = cls(config, *inputs, **kwargs)
         if state_dict is None and not from_tf:
-            state_dict = torch.load(resolved_archive_file, map_location='cpu' if not torch.cuda.is_available() else None)
+            state_dict = torch.load(resolved_archive_file,
+                                    map_location='cpu' if not torch.cuda.is_available() else None)
         if from_tf:
             # Directly load from a TensorFlow checkpoint
             return load_tf_weights_in_transfo_xl(model, config, pretrained_model_name_or_path)
@@ -975,7 +984,7 @@ class TransfoXLPreTrainedModel(nn.Module):
                 model.__class__.__name__, unexpected_keys))
         if len(error_msgs) > 0:
             raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(
-                               model.__class__.__name__, "\n\t".join(error_msgs)))
+                model.__class__.__name__, "\n\t".join(error_msgs)))
         # Make sure we are still sharing the input and output embeddings
         if hasattr(model, 'tie_weights'):
             model.tie_weights()
@@ -1022,6 +1031,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
     last_hidden_state, new_mems = model(input_ids_next, new_mems)
     ```
     """
+
     def __init__(self, config):
         super(TransfoXLModel, self).__init__(config)
         self.n_token = config.n_token
@@ -1031,7 +1041,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
         self.n_head = config.n_head
         self.d_head = config.d_head
 
-        self.word_emb = AdaptiveEmbedding(config.n_token, config.d_embed, config.d_model, config.cutoffs, 
+        self.word_emb = AdaptiveEmbedding(config.n_token, config.d_embed, config.d_model, config.cutoffs,
                                           div_val=config.div_val)
 
         self.drop = nn.Dropout(config.dropout)
@@ -1050,7 +1060,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
             self.r_r_bias = nn.Parameter(torch.Tensor(self.n_head, self.d_head))
 
         self.layers = nn.ModuleList()
-        if config.attn_type == 0: # the default attention
+        if config.attn_type == 0:  # the default attention
             for i in range(config.n_layer):
                 self.layers.append(
                     RelPartialLearnableDecoderLayer(
@@ -1060,7 +1070,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
                         r_w_bias=None if config.untie_r else self.r_w_bias,
                         r_r_bias=None if config.untie_r else self.r_r_bias)
                 )
-        elif config.attn_type == 1: # learnable embeddings
+        elif config.attn_type == 1:  # learnable embeddings
             for i in range(config.n_layer):
                 self.layers.append(
                     RelLearnableDecoderLayer(
@@ -1070,7 +1080,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
                         r_w_bias=None if config.untie_r else self.r_w_bias,
                         r_r_bias=None if config.untie_r else self.r_r_bias)
                 )
-        elif config.attn_type in [2, 3]: # absolute embeddings
+        elif config.attn_type in [2, 3]:  # absolute embeddings
             for i in range(config.n_layer):
                 self.layers.append(
                     DecoderLayer(
@@ -1083,23 +1093,22 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
         self.same_length = config.same_length
         self.clamp_len = config.clamp_len
 
-        if self.attn_type == 0: # default attention
+        if self.attn_type == 0:  # default attention
             self.pos_emb = PositionalEmbedding(self.d_model)
-        elif self.attn_type == 1: # learnable
+        elif self.attn_type == 1:  # learnable
             self.r_emb = nn.Parameter(torch.Tensor(
-                    self.n_layer, self.max_klen, self.n_head, self.d_head))
+                self.n_layer, self.max_klen, self.n_head, self.d_head))
             self.r_bias = nn.Parameter(torch.Tensor(
-                    self.n_layer, self.max_klen, self.n_head))
-        elif self.attn_type == 2: # absolute standard
+                self.n_layer, self.max_klen, self.n_head))
+        elif self.attn_type == 2:  # absolute standard
             self.pos_emb = PositionalEmbedding(self.d_model)
-        elif self.attn_type == 3: # absolute deeper SA
+        elif self.attn_type == 3:  # absolute deeper SA
             self.r_emb = nn.Parameter(torch.Tensor(
-                    self.n_layer, self.max_klen, self.n_head, self.d_head))
+                self.n_layer, self.max_klen, self.n_head, self.d_head))
         self.apply(self.init_weights)
 
     def backward_compatible(self):
         self.sample_softmax = -1
-
 
     def reset_length(self, tgt_len, ext_len, mem_len):
         self.tgt_len = tgt_len
@@ -1136,7 +1145,6 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
             end_idx = mlen + max(0, qlen - 0 - self.ext_len)
             beg_idx = max(0, end_idx - self.mem_len)
             for i in range(len(hids)):
-
                 cat = torch.cat([mems[i], hids[i]], dim=0)
                 new_mems.append(cat[beg_idx:end_idx].detach())
 
@@ -1156,15 +1164,15 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
                 mask_shift_len = qlen - mask_len
             else:
                 mask_shift_len = qlen
-            dec_attn_mask = (torch.triu(all_ones, 1+mlen)
-                    + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None] # -1
+            dec_attn_mask = (torch.triu(all_ones, 1 + mlen)
+                             + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None]  # -1
         else:
             dec_attn_mask = torch.triu(
-                word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()[:,:,None]
+                word_emb.new_ones(qlen, klen), diagonal=1 + mlen).byte()[:, :, None]
 
         hids = []
-        if self.attn_type == 0: # default
-            pos_seq = torch.arange(klen-1, -1, -1.0, device=word_emb.device, 
+        if self.attn_type == 0:  # default
+            pos_seq = torch.arange(klen - 1, -1, -1.0, device=word_emb.device,
                                    dtype=word_emb.dtype)
             if self.clamp_len > 0:
                 pos_seq.clamp_(max=self.clamp_len)
@@ -1174,23 +1182,24 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
             pos_emb = self.drop(pos_emb)
 
             for i, layer in enumerate(self.layers):
+                # TODO(abhi) This is potentially different from the original model (or not)
                 hids.append(core_out)
                 mems_i = None if mems is None else mems[i]
                 core_out = layer(core_out, pos_emb, dec_attn_mask=dec_attn_mask, mems=mems_i)
-        elif self.attn_type == 1: # learnable
+        elif self.attn_type == 1:  # learnable
             core_out = self.drop(word_emb)
             for i, layer in enumerate(self.layers):
                 hids.append(core_out)
                 if self.clamp_len > 0:
-                    r_emb = self.r_emb[i][-self.clamp_len :]
-                    r_bias = self.r_bias[i][-self.clamp_len :]
+                    r_emb = self.r_emb[i][-self.clamp_len:]
+                    r_bias = self.r_bias[i][-self.clamp_len:]
                 else:
                     r_emb, r_bias = self.r_emb[i], self.r_bias[i]
 
                 mems_i = None if mems is None else mems[i]
                 core_out = layer(core_out, r_emb, self.r_w_bias[i],
-                        r_bias, dec_attn_mask=dec_attn_mask, mems=mems_i)
-        elif self.attn_type == 2: # absolute
+                                 r_bias, dec_attn_mask=dec_attn_mask, mems=mems_i)
+        elif self.attn_type == 2:  # absolute
             pos_seq = torch.arange(klen - 1, -1, -1.0, device=word_emb.device,
                                    dtype=word_emb.dtype)
             if self.clamp_len > 0:
@@ -1216,7 +1225,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
                     cur_emb = self.r_emb[i][:-qlen]
                     cur_size = cur_emb.size(0)
                     if cur_size < mlen:
-                        cur_emb_pad = cur_emb[0:1].expand(mlen-cur_size, -1, -1)
+                        cur_emb_pad = cur_emb[0:1].expand(mlen - cur_size, -1, -1)
                         cur_emb = torch.cat([cur_emb_pad, cur_emb], 0)
                     else:
                         cur_emb = cur_emb[-mlen:]
@@ -1287,7 +1296,7 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
         A tuple of (last_hidden_state, new_mems)
         `softmax_output`: output of the (adaptive) softmax:
             if target is None:
-                Negative log likelihood of shape [batch_size, sequence_length] 
+                Negative log likelihood of shape [batch_size, sequence_length]
             else:
                 log probabilities of tokens, shape [batch_size, sequence_length, n_tokens]
         `new_mems`: list (num layers) of updated mem states at the entry of each layer
@@ -1309,6 +1318,7 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
     last_hidden_state, new_mems = model(input_ids_next, mems=new_mems)
     ```
     """
+
     def __init__(self, config):
         super(TransfoXLLMHeadModel, self).__init__(config)
         self.transformer = TransfoXLModel(config)
@@ -1319,9 +1329,13 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
             self.sampler = LogUniformSampler(config.n_token, config.sample_softmax)
         # use adaptive softmax (including standard softmax)
         else:
-            self.crit = ProjectedAdaptiveLogSoftmax(config.n_token, config.d_embed, config.d_model, 
+            self.crit = ProjectedAdaptiveLogSoftmax(config.n_token, config.d_embed, config.d_model,
                                                     config.cutoffs, div_val=config.div_val)
         self.apply(self.init_weights)
+
+        # ensure embedding init is not overridden by out_layer in case of weight sharing
+        self.transformer.word_emb.apply(self.init_weights)
+
         self.tie_weights()
 
     def tie_weights(self):
@@ -1358,7 +1372,7 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
                         shape :: [mem_len, bsz, self.config.d_model] :: Warning: shapes are transposed here w. regards to input_ids
                     softmax_output: output of the (adaptive) softmax:
                         if target is None:
-                            Negative log likelihood of shape :: [bsz, len] 
+                            Negative log likelihood of shape :: [bsz, len]
                         else:
                             log probabilities of tokens, shape :: [bsz, len, n_tokens]
         """

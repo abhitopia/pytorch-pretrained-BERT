@@ -29,6 +29,7 @@ import unicodedata
 
 import torch
 import numpy as np
+from tqdm import tqdm
 
 from .file_utils import cached_path
 
@@ -36,7 +37,6 @@ if sys.version_info[0] == 2:
     import cPickle as pickle
 else:
     import pickle
-
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +50,12 @@ PRETRAINED_CORPUS_ARCHIVE_MAP = {
 }
 CORPUS_NAME = 'corpus.bin'
 
+
 class TransfoXLTokenizer(object):
     """
     Transformer-XL tokenizer adapted from Vocab class in https://github.com/kimiyoung/transformer-xl
     """
+
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None, *inputs, **kwargs):
         """
@@ -105,14 +107,16 @@ class TransfoXLTokenizer(object):
         if verbose: print('counting file {} ...'.format(path))
         assert os.path.exists(path)
 
-        sents = []
         with open(path, 'r', encoding='utf-8') as f:
-            for idx, line in enumerate(f):
-                if verbose and idx > 0 and idx % 500000 == 0:
-                    print('    line {}'.format(idx))
-                symbols = self.tokenize(line, add_eos=add_eos)
-                self.counter.update(symbols)
-                sents.append(symbols)
+            lines = f.readlines()
+
+        sents = []
+        for idx, line in tqdm(enumerate(lines), total=len(lines)):
+            if verbose and idx > 0 and idx % 500000 == 0:
+                print('    line {}'.format(idx))
+            symbols = self.tokenize(line, add_eos=add_eos)
+            self.counter.update(symbols)
+            sents.append(symbols)
 
         return sents
 
@@ -163,18 +167,20 @@ class TransfoXLTokenizer(object):
                 len(self), len(self.counter)))
 
     def encode_file(self, path, ordered=False, verbose=False, add_eos=True,
-            add_double_eos=False):
+                    add_double_eos=False):
         if verbose: print('encoding file {} ...'.format(path))
         assert os.path.exists(path)
-        encoded = []
-        with open(path, 'r', encoding='utf-8') as f:
-            for idx, line in enumerate(f):
-                if verbose and idx > 0 and idx % 500000 == 0:
-                    print('    line {}'.format(idx))
-                symbols = self.tokenize(line, add_eos=add_eos,
-                    add_double_eos=add_double_eos)
-                encoded.append(self.convert_to_tensor(symbols))
 
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        encoded = []
+        for idx, line in tqdm(enumerate(lines), total=len(lines)):
+            if verbose and idx > 0 and idx % 500000 == 0:
+                print('    line {}'.format(idx))
+            symbols = self.tokenize(line, add_eos=add_eos,
+                                    add_double_eos=add_double_eos)
+            encoded.append(self.convert_to_tensor(symbols))
         if ordered:
             encoded = torch.cat(encoded)
 
@@ -315,7 +321,7 @@ class TransfoXLTokenizer(object):
                 symbol = self._run_strip_accents(symbol)
             split_symbols.extend(self._run_split_on_punc(symbol))
 
-        if add_double_eos: # lm1b
+        if add_double_eos:  # lm1b
             return ['<S>'] + split_symbols + ['<S>']
         elif add_eos:
             return split_symbols + ['<eos>']
@@ -354,7 +360,7 @@ class LMOrderedIterator(object):
         beg_idx = max(0, i - self.ext_len)
 
         data = self.data[beg_idx:end_idx]
-        target = self.data[i+1:i+1+seq_len]
+        target = self.data[i + 1:i + 1 + seq_len]
 
         data_out = data.transpose(0, 1).contiguous().to(self.device)
         target_out = target.transpose(0, 1).contiguous().to(self.device)
@@ -430,10 +436,10 @@ class LMShuffledIterator(object):
                         # number of new tokens to fill in
                         n_new = min(len(streams[i]) - 1, self.bptt - n_filled)
                         # first n_retain tokens are retained from last batch
-                        data[n_retain+n_filled:n_retain+n_filled+n_new, i] = \
+                        data[n_retain + n_filled:n_retain + n_filled + n_new, i] = \
                             streams[i][:n_new]
-                        target[n_filled:n_filled+n_new, i] = \
-                            streams[i][1:n_new+1]
+                        target[n_filled:n_filled + n_new, i] = \
+                            streams[i][1:n_new + 1]
                         streams[i] = streams[i][n_new:]
                         n_filled += n_new
                 except StopIteration:
@@ -463,7 +469,7 @@ class LMShuffledIterator(object):
 
 class LMMultiFileIterator(LMShuffledIterator):
     def __init__(self, paths, vocab, bsz, bptt, device='cpu', ext_len=None,
-        shuffle=False):
+                 shuffle=False):
 
         self.paths = paths
         self.vocab = vocab
@@ -538,12 +544,10 @@ class TransfoXLCorpus(object):
             corpus.test = torch.tensor(corpus.test, dtype=torch.long)
         return corpus
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, path, dataset, *args, **kwargs):
+        self.dataset = dataset
         self.vocab = TransfoXLTokenizer(*args, **kwargs)
-        self.dataset = None
-        self.train = None
-        self.valid = None
-        self.test = None
+        self.build_corpus(path, dataset)
 
     def build_corpus(self, path, dataset):
         self.dataset = dataset
@@ -606,10 +610,10 @@ def get_lm_corpus(datadir, dataset):
     fn_pickle = os.path.join(datadir, 'cache.pkl')
     if os.path.exists(fn):
         print('Loading cached dataset...')
-        corpus = torch.load(fn_pickle)
-    elif os.path.exists(fn):
+        corpus = torch.load(fn)
+    elif os.path.exists(fn_pickle):
         print('Loading cached dataset from pickle...')
-        with open(fn, "rb") as fp:
+        with open(fn_pickle, "rb") as fp:
             corpus = pickle.load(fp)
     else:
         print('Producing dataset {}...'.format(dataset))
@@ -631,6 +635,7 @@ def get_lm_corpus(datadir, dataset):
         torch.save(corpus, fn)
 
     return corpus
+
 
 def _is_whitespace(char):
     """Checks whether `chars` is a whitespace character."""

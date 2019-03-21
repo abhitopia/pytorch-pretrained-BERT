@@ -44,6 +44,7 @@ data_utils.Corpus = data_utils.TransfoXLCorpus
 sys.modules['data_utils'] = data_utils
 sys.modules['vocabulary'] = data_utils
 
+
 def convert_transfo_xl_checkpoint_to_pytorch(tf_checkpoint_path,
                                              transfo_xl_config_file,
                                              pytorch_dump_folder_path,
