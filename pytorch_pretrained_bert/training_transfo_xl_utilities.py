@@ -64,7 +64,7 @@ class BalancedDataParallel(DataParallel):
             device_ids = self.device_ids[1:]
         else:
             device_ids = self.device_ids
-            
+
         inputs, kwargs = self.scatter(inputs, kwargs, device_ids)
         if len(self.device_ids) == 1:
             return self.module(*inputs[0], **kwargs[0])
@@ -73,6 +73,9 @@ class BalancedDataParallel(DataParallel):
             replicas = replicas[1:]
         outputs = self.parallel_apply(replicas, device_ids, inputs, kwargs)
         return self.gather(outputs, self.output_device)
+
+    def reset_length(self, *args, **kwargs):
+        self.module.reset_length(*args, **kwargs)
 
     def parallel_apply(self, replicas, device_ids, inputs, kwargs):
         return parallel_apply(replicas, inputs, kwargs, device_ids)
