@@ -184,7 +184,7 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
             log_start_time = time.time()
 
         if train_step == 1 or train_step % args.eval_interval == 0:
-            val_loss = evaluate(va_iter)
+            val_loss = evaluate(args, model, va_iter)
             logger('-' * 100)
             log_str = '| Eval {:3d} at step {:>8d} | time: {:5.2f}s ' \
                       '| valid loss {:5.2f}'.format(
