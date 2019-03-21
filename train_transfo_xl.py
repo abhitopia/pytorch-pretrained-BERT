@@ -101,7 +101,7 @@ def evaluate(args, model, eval_iter):
     return total_loss / total_len
 
 
-def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, optimizer_sparse=None, scheduler_sparse=None):
+def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, optimizer_sparse=None, scheduler_sparse=None, ):
     # Turn on training mode which enables dropout.
 
     train_step = 0
@@ -168,7 +168,7 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, optimizer_
         elif args.scheduler == 'inv_sqrt':
             scheduler.step(train_step)
 
-        if train_step % args.log_interval == 0:
+        if train_step == 1 or train_step % args.log_interval == 0:
             cur_loss = train_loss / args.log_interval
             elapsed = time.time() - log_start_time
             log_str = '| epoch {:3d} step {:>8d} | {:>6d} batches | lr {:.3g} ' \
@@ -179,13 +179,13 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, optimizer_
                 log_str += ' | bpc {:9.5f}'.format(cur_loss / math.log(2))
             else:
                 log_str += ' | ppl {:9.3f}'.format(math.exp(cur_loss))
-            logging(log_str)
+            logger(log_str)
             train_loss = 0
             log_start_time = time.time()
 
-        if train_step % args.eval_interval == 0:
+        if train_step == 1 or train_step % args.eval_interval == 0:
             val_loss = evaluate(va_iter)
-            logging('-' * 100)
+            logger('-' * 100)
             log_str = '| Eval {:3d} at step {:>8d} | time: {:5.2f}s ' \
                       '| valid loss {:5.2f}'.format(
                 train_step // args.eval_interval, train_step,
@@ -194,8 +194,8 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, optimizer_
                 log_str += ' | bpc {:9.5f}'.format(val_loss / math.log(2))
             else:
                 log_str += ' | valid ppl {:9.3f}'.format(math.exp(val_loss))
-            logging(log_str)
-            logging('-' * 100)
+            logger(log_str)
+            logger('-' * 100)
             # Save the model if the validation loss is the best we've seen so far.
             if not best_val_loss or val_loss < best_val_loss:
                 if not args.debug:
@@ -214,8 +214,8 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, optimizer_
             eval_start_time = time.time()
 
         if train_step == args.max_step:
-            logging('-' * 100)
-            logging('End of training')
+            logger('-' * 100)
+            logger('End of training')
             break
 
 
@@ -295,7 +295,7 @@ def main(**kwargs):
 
     args.work_dir = '{}-{}'.format(args.work_dir, args.dataset)
     args.work_dir = os.path.join(args.work_dir, time.strftime('%Y%m%d-%H%M%S'))
-    logging = create_exp_dir(args.work_dir,
+    logger = create_exp_dir(args.work_dir,
                              scripts_to_save=['./train_transfo_xl.py',
                                               './pytorch_pretrained_bert/modeling_transfo_xl_utilities.py',
                                               './pytorch_pretrained_bert/modeling_transfo_xl.py',
@@ -485,36 +485,37 @@ def main(**kwargs):
         else:
             print('Optimizer was not saved. Start from scratch.')
 
-    logging('=' * 100)
+    logger('=' * 100)
     for k, v in args.__dict__.items():
-        logging('    - {} : {}'.format(k, v))
-    logging('=' * 100)
-    logging('#params = {}'.format(args.n_all_param))
-    logging('#non emb params = {}'.format(args.n_nonemb_param))
+        logger('    - {} : {}'.format(k, v))
+    logger('=' * 100)
+    logger('#params = {}'.format(args.n_all_param))
+    logger('#non emb params = {}'.format(args.n_nonemb_param))
 
     # At any point you can hit Ctrl + C to break out of training early.
     try:
         for epoch in itertools.count(start=1):
-            train(epoch, args, para_model, tr_iter, va_iter, optimizer, scheduler, optimizer_sparse=optimizer_sparse,
+            train(epoch, args, para_model, tr_iter, va_iter, optimizer, scheduler, logger=logger,
+                  optimizer_sparse=optimizer_sparse,
                   scheduler_sparse=scheduler_sparse)
 
     except KeyboardInterrupt:
-        logging('-' * 100)
-        logging('Exiting from training early')
+        logger('-' * 100)
+        logger('Exiting from training early')
     # Load the best saved model.
     with open(os.path.join(args.work_dir, 'model.pt'), 'rb') as f:
         model = torch.load(f)
     para_model = model.to(device)
     # Run on test data.
     test_loss = evaluate(args, para_model, te_iter)
-    logging('=' * 100)
+    logger('=' * 100)
     if args.dataset in ['enwik8', 'text8']:
-        logging('| End of training | test loss {:5.2f} | test bpc {:9.5f}'.format(
+        logger('| End of training | test loss {:5.2f} | test bpc {:9.5f}'.format(
             test_loss, test_loss / math.log(2)))
     else:
-        logging('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
+        logger('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
             test_loss, math.exp(test_loss)))
-    logging('=' * 100)
+    logger('=' * 100)
 
 
 if __name__ == '__main__':
