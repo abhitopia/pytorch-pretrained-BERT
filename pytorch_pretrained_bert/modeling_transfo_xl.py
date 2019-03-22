@@ -1151,7 +1151,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
         return new_mems
 
     def _forward(self, dec_inp, mems=None):
-        
+
         qlen, bsz = dec_inp.size()
 
         word_emb = self.word_emb(dec_inp)
@@ -1188,7 +1188,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
                 mems_i = None if mems is None else mems[i]
                 core_out = layer(core_out, pos_emb, dec_attn_mask=dec_attn_mask, mems=mems_i)
                 hids.append(core_out)
-                
+
         elif self.attn_type == 1:  # learnable
             core_out = self.drop(word_emb)
             hids.append(core_out)
@@ -1203,7 +1203,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
                 core_out = layer(core_out, r_emb, self.r_w_bias[i],
                                  r_bias, dec_attn_mask=dec_attn_mask, mems=mems_i)
                 hids.append(core_out)
-                
+
         elif self.attn_type == 2:  # absolute
             pos_seq = torch.arange(klen - 1, -1, -1.0, device=word_emb.device,
                                    dtype=word_emb.dtype)
@@ -1399,4 +1399,4 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
                 softmax_output = softmax_output.view(bsz, tgt_len)
 
         # We transpose back
-        return (softmax_output, new_mems)
+        return softmax_output, new_mems

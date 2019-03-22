@@ -14,6 +14,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from tqdm import tqdm
 
 from pytorch_pretrained_bert.tokenization_transfo_xl import get_lm_corpus
 from pytorch_pretrained_bert.modeling_transfo_xl import TransfoXLLMHeadModel, TransfoXLConfig
@@ -70,6 +71,7 @@ def update_dropatt(m, dropatt):
 
 def evaluate(args, model, eval_iter):
     # Turn on evaluation mode which disables dropout.
+
     model.eval()
 
     # If the model does not use memory at all, make the ext_len longer.
@@ -85,9 +87,14 @@ def evaluate(args, model, eval_iter):
     total_len, total_loss = 0, 0.
     with torch.no_grad():
         mems = tuple()
-        for i, (data, target, seq_len) in enumerate(eval_iter):
-            if args.max_eval_steps > 0 and i >= args.max_eval_steps:
+
+        pbar = tqdm(enumerate(eval_iter), total=len(eval_iter), desc="Evaluating ... ")
+
+        for i, (data, target, seq_len) in pbar:
+
+            if 0 < args.max_eval_steps <= i:
                 break
+
             ret = model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
             loss = loss.mean()
@@ -96,19 +103,19 @@ def evaluate(args, model, eval_iter):
 
     # Switch back to the training mode
     model.reset_length(args.tgt_len, args.ext_len, args.mem_len)
+
     model.train()
 
     return total_loss / total_len
 
 
-def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, optimizer_sparse=None, scheduler_sparse=None, ):
+def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, optimizer_sparse=None, scheduler_sparse=None):
     # Turn on training mode which enables dropout.
 
     train_step = 0
-    train_loss = 0
+    moving_avg_train_loss = None
+    alpha = 0.1
     best_val_loss = None
-    log_start_time = time.time()
-    eval_start_time = time.time()
 
     model.train()
     if args.batch_chunk > 1:
@@ -116,7 +123,10 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
     else:
         mems = tuple()
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
-    for batch, (data, target, seq_len) in enumerate(train_iter):
+
+    pbar = tqdm(enumerate(train_iter), total=len(train_iter))
+
+    for batch, (data, target, seq_len) in pbar:
         model.zero_grad()
         if args.batch_chunk > 1:
             data_chunks = torch.chunk(data, args.batch_chunk, 1)
@@ -131,7 +141,6 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
                     optimizer.backward(loss)
                 else:
                     loss.backward()
-                train_loss += loss.float().item()
         else:
             ret = model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
@@ -140,7 +149,23 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
                 optimizer.backward(loss)
             else:
                 loss.backward()
-            train_loss += loss.float().item()
+
+        if moving_avg_train_loss is None:
+            moving_avg_train_loss = loss.float().item()
+        else:
+            moving_avg_train_loss = moving_avg_train_loss * (1-alpha) + alpha * loss.float().item()
+
+        log_str = 'Train Epoch {:3d} | step {:>8d} | {:>6d} batches | lr {:.3g} | loss {:5.2f} | Perplexity {:5.2f}'.format(
+                epoch,
+                train_step,
+                batch + 1,
+                optimizer.param_groups[0]['lr'],
+                moving_avg_train_loss,
+                np.power(2, moving_avg_train_loss)
+        )
+
+        logger(log_str, print_=False)
+        pbar.set_description(log_str)
 
         if args.fp16:
             optimizer.clip_master_grads(args.clip)
@@ -168,34 +193,20 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
         elif args.scheduler == 'inv_sqrt':
             scheduler.step(train_step)
 
-        if train_step == 1 or train_step % args.log_interval == 0:
-            cur_loss = train_loss / args.log_interval
-            elapsed = time.time() - log_start_time
-            log_str = '| epoch {:3d} step {:>8d} | {:>6d} batches | lr {:.3g} ' \
-                      '| ms/batch {:5.2f} | loss {:5.2f}'.format(
-                epoch, train_step, batch + 1, optimizer.param_groups[0]['lr'],
-                                   elapsed * 1000 / args.log_interval, cur_loss)
-            if args.dataset in ['enwik8', 'text8']:
-                log_str += ' | bpc {:9.5f}'.format(cur_loss / math.log(2))
-            else:
-                log_str += ' | ppl {:9.3f}'.format(math.exp(cur_loss))
-            logger(log_str)
-            train_loss = 0
-            log_start_time = time.time()
-
         if train_step == 1 or train_step % args.eval_interval == 0:
             val_loss = evaluate(args, model, va_iter)
-            logger('-' * 100)
-            log_str = '| Eval {:3d} at step {:>8d} | time: {:5.2f}s ' \
-                      '| valid loss {:5.2f}'.format(
-                train_step // args.eval_interval, train_step,
-                (time.time() - eval_start_time), val_loss)
-            if args.dataset in ['enwik8', 'text8']:
-                log_str += ' | bpc {:9.5f}'.format(val_loss / math.log(2))
-            else:
-                log_str += ' | valid ppl {:9.3f}'.format(math.exp(val_loss))
+
+            log_str = 'Evaluation Epoch {:3d} | step {:>8d} | {:>6d} batches | lr {:.3g} | loss {:5.2f} | Perplexity {:5.2f}'.format(
+                epoch,
+                train_step,
+                batch + 1,
+                optimizer.param_groups[0]['lr'],
+                val_loss,
+                np.power(2, val_loss)
+            )
+
             logger(log_str)
-            logger('-' * 100)
+
             # Save the model if the validation loss is the best we've seen so far.
             if not best_val_loss or val_loss < best_val_loss:
                 if not args.debug:
@@ -210,8 +221,6 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
                 scheduler.step(val_loss)
                 if args.sample_softmax > 0:
                     scheduler_sparse.step(val_loss)
-
-            eval_start_time = time.time()
 
         if train_step == args.max_step:
             logger('-' * 100)
@@ -263,7 +272,7 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
 @click.option('--pre_lnorm', is_flag=True, help='apply LayerNorm to the input instead of the output')
 @click.option('--varlen', is_flag=True, help='use variable length')
 @click.option('--multi_gpu', is_flag=True, help='use multiple GPU')
-@click.option('--log-interval', type=int, default=200, help='report interval')
+# @click.option('--log-interval', type=int, default=200, help='report interval')
 @click.option('--eval-interval', type=int, default=4000, help='evaluation interval')
 @click.option('--work_dir', default='./models/LM-TFM', type=str, help='experiment directory.')
 @click.option('--restart', is_flag=True, default=False, help='restart training from the saved checkpoint')
