@@ -74,13 +74,17 @@ def evaluate(args, model, eval_iter):
 
     model.eval()
 
+    instance = model
+    if not hasattr(model, 'reset_length'):
+        instance = model.module
+
     # If the model does not use memory at all, make the ext_len longer.
     # Otherwise, make the mem_len longer and keep the ext_len the same.
     if args.mem_len == 0:
-        model.reset_length(args.eval_tgt_len,
+        instance.reset_length(args.eval_tgt_len,
                            args.ext_len + args.tgt_len - args.eval_tgt_len, args.mem_len)
     else:
-        model.reset_length(args.eval_tgt_len,
+        instance.reset_length(args.eval_tgt_len,
                            args.ext_len, args.mem_len + args.tgt_len - args.eval_tgt_len)
 
     # Evaluation
@@ -102,7 +106,7 @@ def evaluate(args, model, eval_iter):
             total_len += seq_len
 
     # Switch back to the training mode
-    model.reset_length(args.tgt_len, args.ext_len, args.mem_len)
+    instance.reset_length(args.tgt_len, args.ext_len, args.mem_len)
 
     model.train()
 

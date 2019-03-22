@@ -74,9 +74,6 @@ class BalancedDataParallel(DataParallel):
         outputs = self.parallel_apply(replicas, device_ids, inputs, kwargs)
         return self.gather(outputs, self.output_device)
 
-    def reset_length(self, *args, **kwargs):
-        self.module.reset_length(*args, **kwargs)
-
     def parallel_apply(self, replicas, device_ids, inputs, kwargs):
         return parallel_apply(replicas, inputs, kwargs, device_ids)
 
