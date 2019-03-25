@@ -891,6 +891,46 @@ class TransfoXLPreTrainedModel(nn.Module):
     def set_num_special_tokens(self, num_special_tokens):
         pass
 
+    def load_pretrained_from_path(self, path):
+        model = self
+        state_dict = torch.load(path, map_location='cpu' if not torch.cuda.is_available() else None)
+
+        missing_keys = []
+        unexpected_keys = []
+        error_msgs = []
+        # copy state_dict so _load_from_state_dict can modify it
+        metadata = getattr(state_dict, '_metadata', None)
+        state_dict = state_dict.copy()
+        if metadata is not None:
+            state_dict._metadata = metadata
+
+        def load(module, prefix=''):
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(
+                state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
+            for name, child in module._modules.items():
+                if child is not None:
+                    load(child, prefix + name + '.')
+
+        start_prefix = ''
+        if not hasattr(model, 'transformer') and any(s.startswith('transformer.') for s in state_dict.keys()):
+            start_prefix = 'transformer.'
+        load(model, prefix=start_prefix)
+
+        if len(missing_keys) > 0:
+            logger.info("Weights of {} not initialized from pretrained model: {}".format(
+                model.__class__.__name__, missing_keys))
+        if len(unexpected_keys) > 0:
+            logger.info("Weights from pretrained model not used in {}: {}".format(
+                model.__class__.__name__, unexpected_keys))
+        if len(error_msgs) > 0:
+            raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(
+                model.__class__.__name__, "\n\t".join(error_msgs)))
+        # Make sure we are still sharing the input and output embeddings
+        if hasattr(model, 'tie_weights'):
+            model.tie_weights()
+        return model
+
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, state_dict=None, cache_dir=None,
                         from_tf=False, *inputs, **kwargs):
@@ -1270,7 +1310,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
 
 #         # We transpose back here to shape [bsz, len, hidden_dim]
 #         last_hidden = last_hidden.transpose(0, 1).contiguous()
-        return (last_hidden, new_mems)
+        return last_hidden, new_mems
 
 
 class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):

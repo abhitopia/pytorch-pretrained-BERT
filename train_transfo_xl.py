@@ -20,6 +20,8 @@ from pytorch_pretrained_bert.tokenization_transfo_xl import get_lm_corpus
 from pytorch_pretrained_bert.modeling_transfo_xl import TransfoXLLMHeadModel, TransfoXLConfig
 from pytorch_pretrained_bert.training_transfo_xl_utilities import BalancedDataParallel
 
+import logging
+
 
 def logging(s, log_path, print_=True, log_=True):
     if print_:
@@ -82,10 +84,10 @@ def evaluate(args, model, eval_iter):
     # Otherwise, make the mem_len longer and keep the ext_len the same.
     if args.mem_len == 0:
         instance.reset_length(args.eval_tgt_len,
-                           args.ext_len + args.tgt_len - args.eval_tgt_len, args.mem_len)
+                              args.ext_len + args.tgt_len - args.eval_tgt_len, args.mem_len)
     else:
         instance.reset_length(args.eval_tgt_len,
-                           args.ext_len, args.mem_len + args.tgt_len - args.eval_tgt_len)
+                              args.ext_len, args.mem_len + args.tgt_len - args.eval_tgt_len)
 
     # Evaluation
     total_len, total_loss = 0, 0.
@@ -113,7 +115,8 @@ def evaluate(args, model, eval_iter):
     return total_loss / total_len
 
 
-def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, optimizer_sparse=None, scheduler_sparse=None):
+def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, optimizer_sparse=None,
+          scheduler_sparse=None):
     # Turn on training mode which enables dropout.
 
     train_step = 0
@@ -157,15 +160,15 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
         if moving_avg_train_loss is None:
             moving_avg_train_loss = loss.float().item()
         else:
-            moving_avg_train_loss = moving_avg_train_loss * (1-alpha) + alpha * loss.float().item()
+            moving_avg_train_loss = moving_avg_train_loss * (1 - alpha) + alpha * loss.float().item()
 
         log_str = 'Train Epoch {:3d} | step {:>8d} | {:>6d} batches | lr {:.3g} | loss {:5.2f} | Perplexity {:5.2f}'.format(
-                epoch,
-                train_step,
-                batch + 1,
-                optimizer.param_groups[0]['lr'],
-                moving_avg_train_loss,
-                np.power(2, moving_avg_train_loss)
+            epoch,
+            train_step,
+            batch + 1,
+            optimizer.param_groups[0]['lr'],
+            moving_avg_train_loss,
+            np.power(2, moving_avg_train_loss)
         )
 
         logger(log_str, print_=False)
@@ -232,51 +235,32 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
             break
 
 
-@click.command()
+pass_config = click.make_pass_decorator(SimpleNamespace, ensure=True)
+
+
+@click.group()
 @click.option('--data', type=click.Path(dir_okay=True, exists=False), default='./data/wikitext-103',
               help='location of the data corpus')
 @click.option('--dataset', default='wt103', type=click.Choice(['wt103', 'lm1b', 'enwik8', 'text8']),
               help='dataset name')
-@click.option('--n_layer', type=int, default=16, help='number of total layers')
-@click.option('--n_head', type=int, default=10, help='number of heads')
-@click.option('--d_head', type=int, default=41, help='head dimension')
-@click.option('--d_embed', type=int, default=-1, help='embedding dimension')
-@click.option('--d_model', type=int, default=410, help='model dimension')
-@click.option('--d_inner', type=int, default=2100, help='inner dimension in FF')
-@click.option('--dropout', type=float, default=0.1, help='global dropout rate')
-@click.option('--dropatt', type=float, default=0.0, help='attention probability dropout rate')
-@click.option('--init', default='normal', type=str, help='parameter initializer to use.')
-@click.option('--emb_init', default='normal', type=str, help='parameter initializer to use.')
-@click.option('--init_range', type=float, default=0.1, help='parameters initialized by U(-init_range, init_range)')
-@click.option('--emb_init_range', type=float, default=0.01, help='parameters initialized by U(-init_range, init_range)')
-@click.option('--init_std', type=float, default=0.02, help='parameters initialized by N(0, init_std)')
-@click.option('--proj_init_std', type=float, default=0.01, help='parameters initialized by N(0, init_std)')
-@click.option('--optim', default='adam', type=click.Choice(['adam', 'sgd', 'adagrad']), help='optimizer to use.')
 @click.option('--lr', type=float, default=0.00025, help='initial learning rate (0.00025|5 for adam|sgd)')
 @click.option('--mom', type=float, default=0.0, help='momentum for sgd')
 @click.option('--scheduler', default='cosine', type=click.Choice(['cosine', 'inv_sqrt', 'dev_perf', 'constant']),
               help='lr scheduler to use.')
-@click.option('--warmup_step', type=int, default=0, help='upper epoch limit')
 @click.option('--decay_rate', type=float, default=0.5, help='decay factor when ReduceLROnPlateau is used')
 @click.option('--lr_min', type=float, default=0.0, help='minimum learning rate during annealing')
 @click.option('--clip', type=float, default=0.25, help='gradient clipping')
 @click.option('--clip_nonemb', is_flag=True, help='only clip the gradient of non-embedding params')
-@click.option('--max_step', type=int, default=100000, help='upper epoch limit')
 @click.option('--batch_size', type=int, default=60, help='batch size')
 @click.option('--batch_chunk', type=int, default=1, help='split batch into chunks to save memory')
-@click.option('--tgt_len', type=int, default=150, help='number of tokens to predict')
-@click.option('--eval_tgt_len', type=int, default=150, help='number of tokens to predict for evaluation')
 @click.option('--ext_len', type=int, default=0, help='length of the extended context')
-@click.option('--mem_len', type=int, default=150, help='length of the retained previous heads')
 @click.option('--not_tied', is_flag=True, default=False, help='do not tie the word embedding and softmax weights')
 @click.option('--seed', type=int, default=1111, help='random seed')
 @click.option('--cuda', is_flag=True, help='use CUDA')
 @click.option('--adaptive', is_flag=True, default=True, help='use adaptive softmax')
-@click.option('--div_val', type=int, default=1, help='divident value for adapative input and softmax')
 @click.option('--pre_lnorm', is_flag=True, help='apply LayerNorm to the input instead of the output')
 @click.option('--varlen', is_flag=True, help='use variable length')
 @click.option('--multi_gpu', is_flag=True, help='use multiple GPU')
-# @click.option('--log-interval', type=int, default=200, help='report interval')
 @click.option('--eval-interval', type=int, default=4000, help='evaluation interval')
 @click.option('--work_dir', default='./models/LM-TFM', type=str, help='experiment directory.')
 @click.option('--restart', is_flag=True, default=False, help='restart training from the saved checkpoint')
@@ -287,7 +271,6 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
                                                        'et al, 3 for Al Rfou et al.')
 @click.option('--clamp_len', type=int, default=-1, help='use the same pos embeddings after clamp_len')
 @click.option('--eta_min', type=float, default=0.0, help='min learning rate for cosine scheduler')
-@click.option('--gpu0_bsz', type=int, default=4, help='batch size on gpu 0')
 @click.option('--max_eval_steps', type=int, default=-1, help='max eval steps')
 @click.option('--sample_softmax', type=int, default=-1, help='number of samples in sampled softmax')
 @click.option('--patience', type=int, default=0, help='patience')
@@ -296,8 +279,67 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
                                                                  'improve fp16 convergence.')
 @click.option('--dynamic-loss-scale', is_flag=True, help='Use dynamic loss scaling.  If supplied, this argument '
                                                          'supersedes --static-loss-scale.')
-def main(**kwargs):
-    args = SimpleNamespace(**kwargs)
+@click.option('--init', default='normal', type=str, help='parameter initializer to use.')
+@click.option('--emb_init', default='normal', type=str, help='parameter initializer to use.')
+@click.option('--init_range', type=float, default=0.1, help='parameters initialized by U(-init_range, init_range)')
+@click.option('--emb_init_range', type=float, default=0.01, help='parameters initialized by U(-init_range, init_range)')
+@click.option('--init_std', type=float, default=0.02, help='parameters initialized by N(0, init_std)')
+@click.option('--proj_init_std', type=float, default=0.01, help='parameters initialized by N(0, init_std)')
+@click.option('--optim', default='adam', type=click.Choice(['adam', 'sgd', 'adagrad']), help='optimizer to use.')
+@pass_config
+def cli(ctx, **kwargs):
+    ctx.__dict__.update(kwargs)
+
+
+@cli.command()
+@click.option('--n_layer', type=int, default=18, help='number of total layers')
+@click.option('--n_head', type=int, default=16, help='number of heads')
+@click.option('--d_head', type=int, default=64, help='head dimension')
+@click.option('--d_embed', type=int, default=-1, help='embedding dimension')
+@click.option('--d_model', type=int, default=1024, help='model dimension')
+@click.option('--d_inner', type=int, default=4096, help='inner dimension in FF')
+@click.option('--div_val', type=int, default=4, help='divident value for adapative input and softmax')
+@click.option('--dropout', type=float, default=0.2, help='global dropout rate')
+@click.option('--dropatt', type=float, default=0.2, help='attention probability dropout rate')
+@click.option('--gpu0_bsz', type=int, default=0, help='batch size on gpu 0')
+@click.option('--warmup_step', type=int, default=16000, help='upper epoch limit')
+@click.option('--max_step', type=int, default=4000000, help='upper epoch limit')
+@click.option('--tgt_len', type=int, default=384, help='number of tokens to predict')
+@click.option('--mem_len', type=int, default=384, help='length of the retained previous heads')
+@click.option('--eval_tgt_len', type=int, default=128, help='number of tokens to predict for evaluation')
+@click.option('--pretrained_path', type=click.Path(exists=True), default='./LM-TFM-wt103/transfo_xl_large.bin')
+@click.option('--untie_r', is_flag=True, default=True)
+@pass_config
+def large(args, **kwargs):
+    args.__dict__.update(**kwargs)
+    main(args)
+
+
+@cli.command()
+@click.option('--n_layer', type=int, default=16, help='number of total layers')
+@click.option('--n_head', type=int, default=10, help='number of heads')
+@click.option('--d_head', type=int, default=41, help='head dimension')
+@click.option('--d_embed', type=int, default=-1, help='embedding dimension')
+@click.option('--d_model', type=int, default=410, help='model dimension')
+@click.option('--d_inner', type=int, default=2100, help='inner dimension in FF')
+@click.option('--div_val', type=int, default=1, help='divident value for adapative input and softmax')
+@click.option('--dropout', type=float, default=0.1, help='global dropout rate')
+@click.option('--dropatt', type=float, default=0.0, help='attention probability dropout rate')
+@click.option('--gpu0_bsz', type=int, default=4, help='batch size on gpu 0')
+@click.option('--warmup_step', type=int, default=0, help='upper epoch limit')
+@click.option('--max_step', type=int, default=100000, help='upper epoch limit')
+@click.option('--tgt_len', type=int, default=150, help='number of tokens to predict')
+@click.option('--mem_len', type=int, default=150, help='length of the retained previous heads')
+@click.option('--eval_tgt_len', type=int, default=150, help='number of tokens to predict for evaluation')
+@click.option('--pretrained_path', type=click.Path(exists=False), default=None)
+@click.option('--untie_r', is_flag=True, default=False)
+@pass_config
+def base(args, **kwargs):
+    args.__dict__.update(**kwargs)
+    main(args)
+
+
+def main(args):
     args.tied = not args.not_tied
 
     if args.d_embed < 0:
@@ -309,13 +351,13 @@ def main(**kwargs):
     args.work_dir = '{}-{}'.format(args.work_dir, args.dataset)
     args.work_dir = os.path.join(args.work_dir, time.strftime('%Y%m%d-%H%M%S'))
     logger = create_exp_dir(args.work_dir,
-                             scripts_to_save=['./train_transfo_xl.py',
-                                              './pytorch_pretrained_bert/modeling_transfo_xl_utilities.py',
-                                              './pytorch_pretrained_bert/modeling_transfo_xl.py',
-                                              './pytorch_pretrained_bert/tokenization_transfo_xl.py',
-                                              './pytorch_pretrained_bert/training_transfo_xl_utilities.py'
-                                              ],
-                             debug=args.debug)
+                            scripts_to_save=['./train_transfo_xl.py',
+                                             './pytorch_pretrained_bert/modeling_transfo_xl_utilities.py',
+                                             './pytorch_pretrained_bert/modeling_transfo_xl.py',
+                                             './pytorch_pretrained_bert/tokenization_transfo_xl.py',
+                                             './pytorch_pretrained_bert/training_transfo_xl_utilities.py'
+                                             ],
+                            debug=args.debug)
 
     # Set the random seed manually for reproducibility.
     np.random.seed(args.seed)
@@ -342,7 +384,9 @@ def main(**kwargs):
 
     # Load data
     ###############################################################################
-    corpus = get_lm_corpus(args.data, args.dataset)
+    tokenizer = torch.load('./LM-TFM-wt103/transfo_xl_vocab.bin')
+
+    corpus = get_lm_corpus(args.data, args.dataset, tokenizer=tokenizer)
     ntokens = len(corpus.vocab)
     args.n_token = ntokens
 
@@ -355,7 +399,7 @@ def main(**kwargs):
                                   device=device, ext_len=args.ext_len)
 
     # adaptive softmax / embedding
-    cutoffs, tie_projs = [], [False]
+    cutoffs = []
     if args.adaptive:
         assert args.dataset in ['wt103', 'lm1b']
         if args.dataset == 'wt103':
@@ -394,7 +438,7 @@ def main(**kwargs):
             tie_weight=args.tied,
             dropout=args.dropout,
             dropatt=args.dropatt,
-            untie_r=False,
+            untie_r=args.untie_r,
             init="normal",
             init_range=0.01,
             proj_init_std=0.01,
@@ -402,6 +446,8 @@ def main(**kwargs):
 
         model = TransfoXLLMHeadModel(model_config)
 
+    if args.pretrained_path is not None:
+        model.load_pretrained_from_path(args.pretrained_path)
     args.n_all_param = sum([p.nelement() for p in model.parameters()])
     args.n_nonemb_param = sum([p.nelement() for p in model.transformer.layers.parameters()])
 
@@ -419,7 +465,7 @@ def main(**kwargs):
         para_model = model.to(device)
 
     # optimizer
-    optimizer_sparse=None
+    optimizer_sparse = None
     if args.optim.lower() == 'sgd':
         if args.sample_softmax > 0:
             dense_params, sparse_params = [], []
@@ -532,4 +578,4 @@ def main(**kwargs):
 
 
 if __name__ == '__main__':
-    main()
+    cli()

@@ -26,6 +26,7 @@ import sys
 from collections import Counter, OrderedDict
 from io import open
 import unicodedata
+from pathlib import Path
 
 import torch
 import numpy as np
@@ -102,6 +103,13 @@ class TransfoXLTokenizer(object):
         self.delimiter = delimiter
         self.vocab_file = vocab_file
         self.never_split = never_split
+
+    def dump(self, file_path):
+        torch.save(self, file_path)
+
+    @staticmethod
+    def from_file(file_path):
+        return torch.load(file_path)
 
     def count_file(self, path, verbose=False, add_eos=False):
         if verbose: print('counting file {} ...'.format(path))
@@ -549,26 +557,34 @@ class TransfoXLCorpus(object):
 
     def __init__(self, path, dataset, *args, **kwargs):
         self.dataset = dataset
-        self.vocab = TransfoXLTokenizer(*args, **kwargs)
+
+        if kwargs['tokenizer'] is not None:
+            self.vocab = kwargs['tokenizer']
+            self.vocab_exists = True
+        else:
+            self.vocab = TransfoXLTokenizer(*args, **kwargs)
+            self.vocab_exists = False
+
         self.build_corpus(path, dataset)
 
     def build_corpus(self, path, dataset):
         self.dataset = dataset
 
-        if self.dataset in ['ptb', 'wt2', 'enwik8', 'text8']:
-            self.vocab.count_file(os.path.join(path, 'train.txt'))
-            self.vocab.count_file(os.path.join(path, 'valid.txt'))
-            self.vocab.count_file(os.path.join(path, 'test.txt'))
-        elif self.dataset == 'wt103':
-            self.vocab.count_file(os.path.join(path, 'train.txt'))
-        elif self.dataset == 'lm1b':
-            train_path_pattern = os.path.join(
-                path, '1-billion-word-language-modeling-benchmark-r13output',
-                'training-monolingual.tokenized.shuffled', 'news.en-*')
-            train_paths = glob.glob(train_path_pattern)
-            # the vocab will load from file when build_vocab() is called
+        if not self.vocab_exists:
+            if self.dataset in ['ptb', 'wt2', 'enwik8', 'text8']:
+                self.vocab.count_file(os.path.join(path, 'train.txt'))
+                self.vocab.count_file(os.path.join(path, 'valid.txt'))
+                self.vocab.count_file(os.path.join(path, 'test.txt'))
+            elif self.dataset == 'wt103':
+                self.vocab.count_file(os.path.join(path, 'train.txt'))
+            elif self.dataset == 'lm1b':
+                train_path_pattern = os.path.join(
+                    path, '1-billion-word-language-modeling-benchmark-r13output',
+                    'training-monolingual.tokenized.shuffled', 'news.en-*')
+                train_paths = glob.glob(train_path_pattern)
+                # the vocab will load from file when build_vocab() is called
 
-        self.vocab.build_vocab()
+            self.vocab.build_vocab()
 
         if self.dataset in ['ptb', 'wt2', 'wt103']:
             self.train = self.vocab.encode_file(
@@ -608,19 +624,22 @@ class TransfoXLCorpus(object):
         return data_iter
 
 
-def get_lm_corpus(datadir, dataset):
+def get_lm_corpus(datadir, dataset, tokenizer=None):
     fn = os.path.join(datadir, 'cache.pt')
     fn_pickle = os.path.join(datadir, 'cache.pkl')
     if os.path.exists(fn):
         print('Loading cached dataset...')
         corpus = torch.load(fn)
+        corpus.vocab = tokenizer
     elif os.path.exists(fn_pickle):
         print('Loading cached dataset from pickle...')
         with open(fn_pickle, "rb") as fp:
             corpus = pickle.load(fp)
+            corpus.vocab = tokenizer
+
     else:
         print('Producing dataset {}...'.format(dataset))
-        kwargs = {}
+        kwargs = {'tokenizer': tokenizer}
         if dataset in ['wt103', 'wt2']:
             kwargs['special'] = ['<eos>']
             kwargs['lower_case'] = False
