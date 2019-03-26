@@ -286,6 +286,7 @@ pass_config = click.make_pass_decorator(SimpleNamespace, ensure=True)
 @click.option('--init_std', type=float, default=0.02, help='parameters initialized by N(0, init_std)')
 @click.option('--proj_init_std', type=float, default=0.01, help='parameters initialized by N(0, init_std)')
 @click.option('--optim', default='adam', type=click.Choice(['adam', 'sgd', 'adagrad']), help='optimizer to use.')
+@click.option('--freeze', is_flag=True, default=True)
 @pass_config
 def cli(ctx, **kwargs):
     ctx.__dict__.update(kwargs)
@@ -307,7 +308,7 @@ def cli(ctx, **kwargs):
 @click.option('--tgt_len', type=int, default=384, help='number of tokens to predict')
 @click.option('--mem_len', type=int, default=384, help='length of the retained previous heads')
 @click.option('--eval_tgt_len', type=int, default=128, help='number of tokens to predict for evaluation')
-@click.option('--pretrained_path', type=click.Path(exists=True), default='./LM-TFM-wt103/transfo_xl_large.bin')
+@click.option('--pretrained_path', type=click.Path(exists=True), default='./models/transfo_xl_large.bin')
 @click.option('--untie_r', is_flag=True, default=True)
 @pass_config
 def large(args, **kwargs):
@@ -384,7 +385,7 @@ def main(args):
 
     # Load data
     ###############################################################################
-    tokenizer = torch.load('./LM-TFM-wt103/transfo_xl_vocab.bin')
+    tokenizer = torch.load('./models/transfo_xl_vocab.bin')
 
     corpus = get_lm_corpus(args.data, args.dataset, tokenizer=tokenizer)
     ntokens = len(corpus.vocab)
@@ -448,8 +449,17 @@ def main(args):
 
     if args.pretrained_path is not None:
         model.load_pretrained_from_path(args.pretrained_path)
+
+    if args.freeze:
+        for n, w in model.named_parameters():
+            if 'crit' in n or 'word_emb' in n:
+                w.requires_grad = True
+            else:
+                w.requires_grad = False
+
     args.n_all_param = sum([p.nelement() for p in model.parameters()])
     args.n_nonemb_param = sum([p.nelement() for p in model.transformer.layers.parameters()])
+    args.n_trainable_param = sum([p.nelement() for p in model.parameters() if p.requires_grad])
 
     if args.fp16:
         model = model.half()
