@@ -555,17 +555,24 @@ class TransfoXLCorpus(object):
             corpus.test = torch.tensor(corpus.test, dtype=torch.long)
         return corpus
 
-    def __init__(self, path, dataset, *args, **kwargs):
-        self.dataset = dataset
-
-        if kwargs['tokenizer'] is not None:
-            self.vocab = kwargs['tokenizer']
-            self.vocab_exists = True
-        else:
+    def __init__(self, path=None, dataset=None, *args, **kwargs):
+        if path is None and dataset is None:
             self.vocab = TransfoXLTokenizer(*args, **kwargs)
-            self.vocab_exists = False
+            self.dataset = None
+            self.train = None
+            self.valid = None
+            self.test = None
+        else:
+            self.dataset = dataset
 
-        self.build_corpus(path, dataset)
+            if kwargs['tokenizer'] is not None:
+                self.vocab = kwargs['tokenizer']
+                self.vocab_exists = True
+            else:
+                self.vocab = TransfoXLTokenizer(*args, **kwargs)
+                self.vocab_exists = False
+
+            self.build_corpus(path, dataset)
 
     def build_corpus(self, path, dataset):
         self.dataset = dataset
