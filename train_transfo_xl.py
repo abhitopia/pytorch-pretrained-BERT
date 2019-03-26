@@ -91,6 +91,7 @@ def evaluate(args, model, eval_iter):
 
     # Evaluation
     total_len, total_loss = 0, 0.
+
     with torch.no_grad():
         mems = tuple()
 
@@ -134,6 +135,36 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
     pbar = tqdm(enumerate(train_iter), total=len(train_iter))
 
     for batch, (data, target, seq_len) in pbar:
+
+        if train_step == 1 or train_step % args.eval_interval == 0:
+            val_loss = evaluate(args, model, va_iter)
+
+            log_str = 'Evaluation Epoch {:3d} | step {:>8d} | {:>6d} batches | lr {:.3g} | loss {:5.2f} | Perplexity {:5.2f}'.format(
+                epoch,
+                train_step,
+                batch + 1,
+                optimizer.param_groups[0]['lr'],
+                val_loss,
+                np.power(2, val_loss)
+            )
+
+            logger(log_str)
+
+            # Save the model if the validation loss is the best we've seen so far.
+            if not best_val_loss or val_loss < best_val_loss:
+                if not args.debug:
+                    with open(os.path.join(args.work_dir, 'model.pt'), 'wb') as f:
+                        torch.save(model, f)
+                    with open(os.path.join(args.work_dir, 'optimizer.pt'), 'wb') as f:
+                        torch.save(optimizer.state_dict(), f)
+                best_val_loss = val_loss
+
+            # dev-performance based learning rate annealing
+            if args.scheduler == 'dev_perf':
+                scheduler.step(val_loss)
+                if args.sample_softmax > 0:
+                    scheduler_sparse.step(val_loss)
+
         model.zero_grad()
         if args.batch_chunk > 1:
             data_chunks = torch.chunk(data, args.batch_chunk, 1)
@@ -200,34 +231,6 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
         elif args.scheduler == 'inv_sqrt':
             scheduler.step(train_step)
 
-        if train_step == 1 or train_step % args.eval_interval == 0:
-            val_loss = evaluate(args, model, va_iter)
-
-            log_str = 'Evaluation Epoch {:3d} | step {:>8d} | {:>6d} batches | lr {:.3g} | loss {:5.2f} | Perplexity {:5.2f}'.format(
-                epoch,
-                train_step,
-                batch + 1,
-                optimizer.param_groups[0]['lr'],
-                val_loss,
-                np.power(2, val_loss)
-            )
-
-            logger(log_str)
-
-            # Save the model if the validation loss is the best we've seen so far.
-            if not best_val_loss or val_loss < best_val_loss:
-                if not args.debug:
-                    with open(os.path.join(args.work_dir, 'model.pt'), 'wb') as f:
-                        torch.save(model, f)
-                    with open(os.path.join(args.work_dir, 'optimizer.pt'), 'wb') as f:
-                        torch.save(optimizer.state_dict(), f)
-                best_val_loss = val_loss
-
-            # dev-performance based learning rate annealing
-            if args.scheduler == 'dev_perf':
-                scheduler.step(val_loss)
-                if args.sample_softmax > 0:
-                    scheduler_sparse.step(val_loss)
 
         if train_step == args.max_step:
             logger('-' * 100)
@@ -386,6 +389,9 @@ def main(args):
     # Load data
     ###############################################################################
     tokenizer = torch.load('./models/transfo_xl_vocab.bin')
+    #from pytorch_pretrained_bert.tokenization_transfo_xl import TransfoXLCorpus
+
+    #corpus = TransfoXLCorpus.from_pretrained("./models", "./models")
 
     corpus = get_lm_corpus(args.data, args.dataset, tokenizer=tokenizer)
     ntokens = len(corpus.vocab)
@@ -583,7 +589,7 @@ def main(args):
             test_loss, test_loss / math.log(2)))
     else:
         logger('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
-            test_loss, math.exp(test_loss)))
+            test_loss, np.power(2, test_loss)))
     logger('=' * 100)
 
 
