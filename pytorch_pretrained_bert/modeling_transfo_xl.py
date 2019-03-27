@@ -1156,11 +1156,12 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
         self.ext_len = ext_len
 
     def init_mems(self, data):
+
         if self.mem_len > 0:
             mems = []
             param = next(self.parameters())
-            for i in range(self.n_layer + 1):
-                empty = torch.zeros(self.mem_len, data.size(1), self.config.d_model,
+            for i in range(self.n_layer):
+                empty = torch.zeros(0, data.size(1), self.config.d_model,
                                     dtype=param.dtype, device=param.device)
                 mems.append(empty)
 
@@ -1168,7 +1169,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
         else:
             return None
 
-    def _update_mems(self, hids, mems, qlen, mlen):
+    def _update_mems(self, hids, mems, mlen, qlen):
         # does not deal with None
         if mems is None: return None
 
@@ -1198,18 +1199,17 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
 
         mlen = mems[0].size(0) if mems is not None else 0
         klen = mlen + qlen
-        if self.same_length:
-            all_ones = word_emb.new_ones(qlen, klen)
-            mask_len = klen - self.mem_len
-            if mask_len > 0:
-                mask_shift_len = qlen - mask_len
-            else:
-                mask_shift_len = qlen
-            dec_attn_mask = (torch.triu(all_ones, 1 + mlen)
-                             + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None]  # -1
-        else:
-            dec_attn_mask = torch.triu(
-                word_emb.new_ones(qlen, klen), diagonal=1 + mlen).byte()[:, :, None]
+        all_ones = word_emb.new_ones(qlen, klen)
+        # if self.same_length:
+        #     mask_len = klen - self.mem_len
+        #     if mask_len > 0:
+        #         mask_shift_len = qlen - mask_len
+        #     else:
+        #         mask_shift_len = qlen
+        #     dec_attn_mask = (torch.triu(all_ones, 1 + mlen)
+        #                      + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None]  # -1
+        # else:
+        dec_attn_mask = torch.triu(all_ones, diagonal=1 + mlen).byte()[:, :, None]
 
         hids = []
         if self.attn_type == 0:  # default
@@ -1222,17 +1222,15 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
             core_out = self.drop(word_emb)
             pos_emb = self.drop(pos_emb)
 
-            hids.append(core_out)
             for i, layer in enumerate(self.layers):
-                # TODO(abhi) This is potentially different from the original model (or not)
+                hids.append(core_out)
                 mems_i = None if mems is None else mems[i]
                 core_out = layer(core_out, pos_emb, dec_attn_mask=dec_attn_mask, mems=mems_i)
-                hids.append(core_out)
 
         elif self.attn_type == 1:  # learnable
             core_out = self.drop(word_emb)
-            hids.append(core_out)
             for i, layer in enumerate(self.layers):
+                hids.append(core_out)
                 if self.clamp_len > 0:
                     r_emb = self.r_emb[i][-self.clamp_len:]
                     r_bias = self.r_bias[i][-self.clamp_len:]
@@ -1263,8 +1261,8 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
         elif self.attn_type == 3:
             core_out = self.drop(word_emb)
 
-            hids.append(core_out)
             for i, layer in enumerate(self.layers):
+                hids.append(core_out)
                 mems_i = None if mems is None else mems[i]
                 if mems_i is not None and mlen > 0:
                     cur_emb = self.r_emb[i][:-qlen]
@@ -1421,12 +1419,12 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
                         else:
                             log probabilities of tokens, shape :: [bsz, len, n_tokens]
         """
-        bsz = input_ids.size(0)
-        tgt_len = input_ids.size(1)
+        tgt_len = input_ids.size(0)
+        bsz = input_ids.size(1)
 
         last_hidden, new_mems = self.transformer(input_ids, mems)
 
-        pred_hid = last_hidden[:, -tgt_len:]
+        pred_hid = last_hidden[-tgt_len:, :]
         if self.sample_softmax > 0 and self.training:
             assert self.config.tie_weight
             logit = sample_logits(self.transformer.word_emb, self.out_layer.bias, target, pred_hid, self.sampler)
@@ -1434,9 +1432,9 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
         else:
             softmax_output = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target)
             if target is None:
-                softmax_output = softmax_output.view(bsz, tgt_len, -1)
+                softmax_output = softmax_output.view(tgt_len, bsz, -1)
             else:
-                softmax_output = softmax_output.view(bsz, tgt_len)
+                softmax_output = softmax_output.view(tgt_len, bsz)
 
         # We transpose back
         return softmax_output, new_mems

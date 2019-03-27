@@ -1,5 +1,6 @@
 import torch
-from pytorch_pretrained_bert import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel
+from pytorch_pretrained_bert import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel, TransfoXLCorpus
+from pytorch_pretrained_bert.tokenization_transfo_xl import get_lm_corpus
 
 # OPTIONAL: if you want to have more information on what's happening, activate the logger as follows
 import logging
@@ -8,9 +9,16 @@ logging.basicConfig(level=logging.INFO)
 # Load pre-trained model tokenizer (vocabulary from wikitext 103)
 tokenizer = TransfoXLTokenizer.from_pretrained('transfo-xl-wt103')
 
+
+corpus_original = TransfoXLCorpus.from_pretrained('./models/')
+corpus = get_lm_corpus('./data/wikitext-103', 'wt103', tokenizer=torch.load('./models/transfo_xl_vocab.bin'))
 # Tokenized input
-text_1 = "This is customer support for Freshly."
-text_2 = "Thanks for contacting "
+# text_1 = "This is customer support for Freshly."
+# text_2 = "Thanks for contacting "
+
+text_1 = "Who was Jim Henson ?"
+text_2 = "Jim Henson was a puppeteer"
+
 tokenized_text_1 = tokenizer.tokenize(text_1)
 tokenized_text_2 = tokenizer.tokenize(text_2)
 
@@ -19,8 +27,8 @@ indexed_tokens_1 = tokenizer.convert_tokens_to_ids(tokenized_text_1)
 indexed_tokens_2 = tokenizer.convert_tokens_to_ids(tokenized_text_2)
 
 # Convert inputs to PyTorch tensors
-tokens_tensor_1 = torch.tensor([indexed_tokens_1])
-tokens_tensor_2 = torch.tensor([indexed_tokens_2])
+tokens_tensor_1 = torch.tensor([indexed_tokens_1]).view([-1, 1])
+tokens_tensor_2 = torch.tensor([indexed_tokens_2]).view([-1, 1])
 
 
 # # Load pre-trained model (weights)
@@ -55,7 +63,7 @@ with torch.no_grad():
 
 
 # get the predicted last token
-predicted_index = torch.argmax(predictions_2[0, -1, :]).item()
+predicted_index = torch.argmax(predictions_2[-1, 0, :]).item()
 predicted_token = tokenizer.convert_ids_to_tokens([predicted_index])[0]
 
 #assert predicted_token == 'who'
@@ -66,7 +74,7 @@ for i in range(10):
 
     predictions_2, mems_2 = model(predicted_index * torch.ones([1, 1], dtype=tokens_tensor_2.dtype), mems=mems_2)
 
-    predicted_index = torch.argmax(predictions_2[0, -1, :]).item()
+    predicted_index = torch.argmax(predictions_2[-1, 0, :]).item()
     predicted_token = tokenizer.convert_ids_to_tokens([predicted_index])[0]
     text_predicted += [predicted_token]
 

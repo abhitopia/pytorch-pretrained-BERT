@@ -26,7 +26,6 @@ import sys
 from collections import Counter, OrderedDict
 from io import open
 import unicodedata
-from pathlib import Path
 
 import torch
 import numpy as np
@@ -248,6 +247,11 @@ class TransfoXLTokenizer(object):
 
     def convert_to_tensor(self, symbols):
         return torch.LongTensor(self.convert_tokens_to_ids(symbols))
+
+    def transform(self, string):
+        tokenized_text = self.tokenize(string)
+        indexed_tokens = self.convert_tokens_to_ids(tokenized_text)
+        return indexed_tokens
 
     def decode(self, indices, exclude=None):
         """Converts a sequence of indices in a string."""
