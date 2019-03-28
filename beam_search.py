@@ -1,6 +1,6 @@
-from pytorch_pretrained_bert import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel, TransfoXLCorpus, TransfoXLConfig
+from pytorch_pretrained_bert import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel, TransfoXLCorpus, \
+    TransfoXLConfig
 from pytorch_pretrained_bert.tokenization_transfo_xl import get_lm_corpus
-
 
 import torch
 import numpy as np
@@ -25,18 +25,35 @@ class TransformerXLBeamSearch:
         token_indices = indices % v
         return logprobs, beam_indices, token_indices
 
-    def _logprobs(self, x, mask, next_token_restrictions):
+    def _replicate(self, beam_indices, tensor, dim):
+        tensor_type = type(tensor)
+        if isinstance(tensor, torch.Tensor):
+            tensor = [tensor]
+
+        result = []
+        for t in tensor:
+            result.append(t.index_select(dim=dim, index=beam_indices))
+
+        if tensor_type == tuple:
+            return tuple(result)
+        elif tensor_type == torch.Tensor:
+            return result[0]
+
+        return result
+
+    def _logprobs(self, x, mask, mems, next_token_restrictions):
         self.model.eval()
+        last_step = x[:, -1].view([1, -1])
         with torch.no_grad():
-            #bs = x.shape[0]
-            #input_lens = mask.sum(1)
-            logprobs, mems = self.model(x.view([-1, 1]).long())
-            logprobs = logprobs.squeeze(1)
+            # bs = x.shape[0]
+            # input_lens = mask.sum(1)
+            logprobs, mems = self.model(last_step, mems=mems)
+            logprobs = logprobs.squeeze(0)
             # compute probability only on last token
-            #output = output[torch.arange(bs).long(), input_lens - 1]
-            #logits = self.model.lm_head(output)
-            #logits = self._apply_token_mask(logits, next_token_restrictions, vocab_size=logits.size(-1))
-            #logprobs = torch.nn.functional.log_softmax(logits, dim=-1)
+            # output = output[torch.arange(bs).long(), input_lens - 1]
+            # logits = self.model.lm_head(output)
+            # logits = self._apply_token_mask(logits, next_token_restrictions, vocab_size=logits.size(-1))
+            # logprobs = torch.nn.functional.log_softmax(logits, dim=-1)
             return logprobs, mems
 
     @staticmethod
@@ -72,9 +89,9 @@ class TransformerXLBeamSearch:
 
         return token_masks
 
-    def predict(self, x, mask, token_restrictions=None):
+    def predict(self, x, mask, mems=None, token_restrictions=None):
 
-        #assert x.shape == mask.shape
+        assert x.shape == mask.shape
         assert len(x.shape) == 1
 
         # 1. keep only what is needed.
@@ -104,22 +121,25 @@ class TransformerXLBeamSearch:
                                                torch.masked_select(x_i[j], mask_i[j]).tolist()[input_len:],
                                                torch.masked_select(each_logprobs_i[j], mask_i[j]).tolist()[input_len:]))
 
-        def apply_mask(boolean_mask, logprobs, x, mask, each_logprobs):
+        def apply_mask(boolean_mask, logprobs, x, mems, mask, each_logprobs):
             logprobs_masked = logprobs[boolean_mask]
             x_masked = x[boolean_mask, :]
+            mems_masked = [t[:, boolean_mask, :] for t in mems]
             mask_masked = mask[boolean_mask, :]
             each_logprobs_masked = each_logprobs[boolean_mask, :]
-            return logprobs_masked, x_masked, mask_masked, each_logprobs_masked
+
+            return logprobs_masked, x_masked, mems_masked, mask_masked, each_logprobs_masked
 
         # 4. compute first beam-size token_indices
-        logprobs, mems = self._logprobs(x, mask, next_token_restrictions)
+        logprobs, mems = self._logprobs(x, mask, mems, next_token_restrictions)
         unfinished_logprobs, beam_indices, token_indices = self._topk(logprobs)
-        restriction_indices = restriction_indices[beam_indices]
+        restriction_indices = self._replicate(beam_indices, restriction_indices, dim=0)
         term_mask = (unfinished_logprobs == -np.inf) | (token_indices == self.term_token).view(-1)
 
         # 5. initialise unfinished_{x|mask|each_logprobs}
-        unfinished_x = x[beam_indices, :]
-        unfinished_mask = mask[beam_indices, :]
+        unfinished_x = self._replicate(beam_indices, x, dim=0)
+        unfinished_mems = self._replicate(beam_indices, mems, dim=1)
+        unfinished_mask = self._replicate(beam_indices, mask, dim=0)
         unfinished_each_logprobs = -np.inf * torch.ones_like(unfinished_x).type(unfinished_logprobs.type())
 
         # 6. append new indices and new mask
@@ -128,17 +148,20 @@ class TransformerXLBeamSearch:
         unfinished_each_logprobs = torch.cat([unfinished_each_logprobs, unfinished_logprobs.view([-1, 1])], dim=1)
 
         # 7. split into finished and unfinished, add finished as candidates and update restriction_indices
-        finished_logprobs, finished_x, finished_mask, finished_each_logprobs = apply_mask(term_mask,
-                                                                                          unfinished_logprobs,
-                                                                                          unfinished_x,
-                                                                                          unfinished_mask,
-                                                                                          unfinished_each_logprobs)
+        finished_logprobs, finished_x, finished_mems, finished_mask, finished_each_logprobs = apply_mask(term_mask,
+                                                                                                         unfinished_logprobs,
+                                                                                                         unfinished_x,
+                                                                                                         unfinished_mems,
+                                                                                                         unfinished_mask,
+                                                                                                         unfinished_each_logprobs)
 
-        unfinished_logprobs, unfinished_x, unfinished_mask, unfinished_each_logprobs = apply_mask(1 - term_mask,
-                                                                                                  unfinished_logprobs,
-                                                                                                  unfinished_x,
-                                                                                                  unfinished_mask,
-                                                                                                  unfinished_each_logprobs)
+        unfinished_logprobs, unfinished_x, unfinished_mems, unfinished_mask, unfinished_each_logprobs = apply_mask(
+            1 - term_mask,
+            unfinished_logprobs,
+            unfinished_x,
+            unfinished_mems,
+            unfinished_mask,
+            unfinished_each_logprobs)
 
         restriction_indices = restriction_indices[1 - term_mask]
 
@@ -150,7 +173,8 @@ class TransformerXLBeamSearch:
                 next_token_restrictions = self._next_token_restrictions(restriction_ids=restriction_indices,
                                                                         time_step=i + 1,
                                                                         token_restrictions=token_restrictions)
-            unfinished_logprobs_i = self._logprobs(unfinished_x, unfinished_mask, next_token_restrictions)
+            unfinished_logprobs_i, unfinished_mems_i = self._logprobs(unfinished_x, unfinished_mask,
+                                                                      unfinished_mems, next_token_restrictions)
 
             # 9. add previous logprobs of unfinished_beams
             unfinished_logprobs_tmp = unfinished_logprobs_i + unfinished_logprobs.view([-1, 1])
@@ -162,7 +186,8 @@ class TransformerXLBeamSearch:
                 -1) if i < self.max_len - 1 else (token_indices >= 0).view(-1)
 
             # 11. re-align x and mask
-            unfinished_x, unfinished_mask = unfinished_x[beam_indices, :], unfinished_mask[beam_indices, :]
+            unfinished_x, unfinished_mask = unfinished_x[beam_indices, :], unfinished_mask[beam_indices, :],
+            unfinished_mems = self._replicate(beam_indices, unfinished_mems_i, dim=1)
 
             # 12. append new indices and update the mask
             unfinished_x = torch.cat([unfinished_x, token_indices.view([-1, 1])], dim=1)
@@ -172,17 +197,21 @@ class TransformerXLBeamSearch:
                                                  dim=1)
 
             # 13. split into finished and unfinished beams and update restriction_indices
-            finished_logprobs_i, finished_x_i, finished_mask_i, finished_each_logprobs_i = apply_mask(term_mask,
-                                                                                                      unfinished_logprobs,
-                                                                                                      unfinished_x,
-                                                                                                      unfinished_mask,
-                                                                                                      unfinished_each_logprobs)
+            finished_logprobs_i, finished_x_i, finished_mems_i, finished_mask_i, finished_each_logprobs_i = apply_mask(
+                term_mask,
+                unfinished_logprobs,
+                unfinished_x,
+                unfinished_mems,
+                unfinished_mask,
+                unfinished_each_logprobs)
 
-            unfinished_logprobs, unfinished_x, unfinished_mask, unfinished_each_logprobs = apply_mask(1 - term_mask,
-                                                                                                      unfinished_logprobs,
-                                                                                                      unfinished_x,
-                                                                                                      unfinished_mask,
-                                                                                                      unfinished_each_logprobs)
+            unfinished_logprobs, unfinished_x, unfinished_mems, unfinished_mask, unfinished_each_logprobs = apply_mask(
+                1 - term_mask,
+                unfinished_logprobs,
+                unfinished_x,
+                unfinished_mems,
+                unfinished_mask,
+                unfinished_each_logprobs)
 
             restriction_indices = restriction_indices[1 - term_mask]
 
@@ -197,7 +226,6 @@ class TransformerXLBeamSearch:
 
 
 if __name__ == '__main__':
-
     tokenizer = torch.load('./models/transfo_xl_vocab.bin')
 
     model_config = TransfoXLConfig(
@@ -235,12 +263,13 @@ if __name__ == '__main__':
 
     lm = TransformerXLBeamSearch(model=model, bs=5, term_token=0, bw=2, max_len=50)
 
-    text_1 = "Who was Jim Henson ?"
+    text_1 = "Who was Jim Henson ? Jim Henson was a puppeteer"
     tokens_tensor_1 = np.asarray(tokenizer.transform(text_1), dtype=np.int32)
-    mask = np.ones_like(tokens_tensor_1, dtype=np.uint8)
+    x_except_last_token = torch.LongTensor(tokens_tensor_1).view([-1, 1])[:-1, :]
+    last_token = torch.LongTensor(tokens_tensor_1).view([-1, 1])[-1, :]
+    mask = torch.Tensor(np.ones_like(last_token, dtype=np.uint8)).byte()
+    _, mems = model(x_except_last_token)
+    # x, new_mems = model(torch.LongTensor(tokens_tensor_1).view([-1, 1]), mems=mems)
 
-    x, mems = model(torch.LongTensor(tokens_tensor_1).view([-1, 1]))
-    x, new_mems = model(torch.LongTensor(tokens_tensor_1).view([-1, 1]), mems=mems)
-
-    lm.predict(x=torch.from_numpy(tokens_tensor_1), mask=torch.from_numpy(mask), token_restrictions=None)
-
+    predictions = lm.predict(x=last_token, mask=mask, mems=mems, token_restrictions=None)
+    doSomething = 1
