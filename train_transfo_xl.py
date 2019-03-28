@@ -289,7 +289,7 @@ pass_config = click.make_pass_decorator(SimpleNamespace, ensure=True)
 @click.option('--init_std', type=float, default=0.02, help='parameters initialized by N(0, init_std)')
 @click.option('--proj_init_std', type=float, default=0.01, help='parameters initialized by N(0, init_std)')
 @click.option('--optim', default='adam', type=click.Choice(['adam', 'sgd', 'adagrad']), help='optimizer to use.')
-@click.option('--freeze', is_flag=True, default=True)
+@click.option('--freeze', is_flag=True, default=False)
 @pass_config
 def cli(ctx, **kwargs):
     ctx.__dict__.update(kwargs)
