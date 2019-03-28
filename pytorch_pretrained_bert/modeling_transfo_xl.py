@@ -516,7 +516,7 @@ class RelMultiHeadAttn(nn.Module):
 
         return x
 
-    def _rel_shift(self, x, zero_triu=False):
+    def _rel_shift(self, x, zero_triu=True):
         zero_pad_shape = (x.size(0), 1) + x.size()[2:]
         zero_pad = torch.zeros(zero_pad_shape, device=x.device, dtype=x.dtype)
         x_padded = torch.cat([zero_pad, x], dim=1)
@@ -583,6 +583,9 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         # [qlen x klen x bsz x n_head]
         attn_score = AC + BD
         attn_score.mul_(self.scale)
+
+        # Experimental stablizer
+        attn_score += torch.log(w_head_k.norm(p=2, dim=-1)).unsqueeze(0)
 
         # compute attention probability
         if attn_mask is not None and attn_mask.any().item():
@@ -1200,16 +1203,16 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
         mlen = mems[0].size(0) if mems is not None else 0
         klen = mlen + qlen
         all_ones = word_emb.new_ones(qlen, klen)
-        # if self.same_length:
-        #     mask_len = klen - self.mem_len
-        #     if mask_len > 0:
-        #         mask_shift_len = qlen - mask_len
-        #     else:
-        #         mask_shift_len = qlen
-        #     dec_attn_mask = (torch.triu(all_ones, 1 + mlen)
-        #                      + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None]  # -1
-        # else:
-        dec_attn_mask = torch.triu(all_ones, diagonal=1 + mlen).byte()[:, :, None]
+        if False and self.same_length:
+            mask_len = klen - self.mem_len
+            if mask_len > 0:
+                mask_shift_len = qlen - mask_len
+            else:
+                mask_shift_len = qlen
+            dec_attn_mask = (torch.triu(all_ones, 1 + mlen)
+                             + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None]  # -1
+        else:
+            dec_attn_mask = torch.triu(all_ones, diagonal=1 + mlen).byte()[:, :, None]
 
         hids = []
         if self.attn_type == 0:  # default
@@ -1240,7 +1243,6 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
                 mems_i = None if mems is None else mems[i]
                 core_out = layer(core_out, r_emb, self.r_w_bias[i],
                                  r_bias, dec_attn_mask=dec_attn_mask, mems=mems_i)
-                hids.append(core_out)
 
         elif self.attn_type == 2:  # absolute
             pos_seq = torch.arange(klen - 1, -1, -1.0, device=word_emb.device,
@@ -1277,7 +1279,6 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
 
                 core_out = layer(core_out, dec_attn_mask=dec_attn_mask,
                                  mems=mems_i)
-                hids.append(core_out)
 
         core_out = self.drop(core_out)
         new_mems = self._update_mems(hids, mems, mlen, qlen)
