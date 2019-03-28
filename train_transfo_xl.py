@@ -136,7 +136,7 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
 
     for batch, (data, target, seq_len) in pbar:
 
-        if train_step == 1 or train_step % args.eval_interval == 0:
+        if train_step % args.eval_interval == 0:
             val_loss = evaluate(args, model, va_iter)
 
             log_str = 'Evaluation Epoch {:3d} | step {:>8d} | {:>6d} batches | lr {:.3g} | loss {:5.2f} | Perplexity {:5.2f}'.format(
@@ -145,7 +145,7 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
                 batch + 1,
                 optimizer.param_groups[0]['lr'],
                 val_loss,
-                np.power(2, val_loss)
+                np.exp(val_loss)
             )
 
             logger(log_str)
@@ -199,7 +199,7 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
             batch + 1,
             optimizer.param_groups[0]['lr'],
             moving_avg_train_loss,
-            np.power(2, moving_avg_train_loss)
+            np.exp(moving_avg_train_loss)
         )
 
         logger(log_str, print_=False)
@@ -264,7 +264,7 @@ pass_config = click.make_pass_decorator(SimpleNamespace, ensure=True)
 @click.option('--pre_lnorm', is_flag=True, help='apply LayerNorm to the input instead of the output')
 @click.option('--varlen', is_flag=True, help='use variable length')
 @click.option('--multi_gpu', is_flag=True, help='use multiple GPU')
-@click.option('--eval-interval', type=int, default=4000, help='evaluation interval')
+@click.option('--eval-interval', type=int, default=400, help='evaluation interval')
 @click.option('--work_dir', default='./models/LM-TFM', type=str, help='experiment directory.')
 @click.option('--restart', is_flag=True, default=False, help='restart training from the saved checkpoint')
 @click.option('--restart_dir', type=str, default='', help='restart dir')
@@ -397,7 +397,7 @@ def main(args):
     ntokens = len(corpus.vocab)
     args.n_token = ntokens
 
-    eval_batch_size = 10
+    eval_batch_size = 100
     tr_iter = corpus.get_iterator('train', args.batch_size, args.tgt_len,
                                   device=device, ext_len=args.ext_len)
     va_iter = corpus.get_iterator('valid', eval_batch_size, args.eval_tgt_len,
@@ -566,6 +566,7 @@ def main(args):
     logger('=' * 100)
     logger('#params = {}'.format(args.n_all_param))
     logger('#non emb params = {}'.format(args.n_nonemb_param))
+    logger('#trainable params = {}'.format(args.n_trainable_param))
 
     # At any point you can hit Ctrl + C to break out of training early.
     try:
@@ -589,7 +590,7 @@ def main(args):
             test_loss, test_loss / math.log(2)))
     else:
         logger('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
-            test_loss, np.power(2, test_loss)))
+            test_loss, np.exp(test_loss)))
     logger('=' * 100)
 
 
