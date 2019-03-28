@@ -242,7 +242,7 @@ pass_config = click.make_pass_decorator(SimpleNamespace, ensure=True)
 
 
 @click.group()
-@click.option('--data', type=click.Path(dir_okay=True, exists=False), default='./data/wikitext-103',
+@click.option('--data', type=click.Path(dir_okay=True, exists=False), default='./data/freshly',
               help='location of the data corpus')
 @click.option('--dataset', default='wt103', type=click.Choice(['wt103', 'lm1b', 'enwik8', 'text8']),
               help='dataset name')
