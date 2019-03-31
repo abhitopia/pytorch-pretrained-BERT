@@ -525,9 +525,9 @@ class RelMultiHeadAttn(nn.Module):
         x_padded = x_padded.view(*x_padded_shape)
 
         x = x_padded[1:].view_as(x)
-
+        
         if zero_triu:
-            ones = torch.ones((x.size(0), x.size(1)))
+            ones = torch.ones((x.size(0), x.size(1)), device=x.device)
             x = x * torch.tril(ones, x.size(1) - x.size(0))[:, :, None, None]
 
         return x
@@ -897,7 +897,10 @@ class TransfoXLPreTrainedModel(nn.Module):
     def load_pretrained_from_path(self, path):
         model = self
         state_dict = torch.load(path, map_location='cpu' if not torch.cuda.is_available() else None)
-
+        
+        if isinstance(state_dict, nn.Module):
+            state_dict = state_dict.state_dict()
+        
         missing_keys = []
         unexpected_keys = []
         error_msgs = []
@@ -915,9 +918,17 @@ class TransfoXLPreTrainedModel(nn.Module):
                 if child is not None:
                     load(child, prefix + name + '.')
 
+        import ipdb; ipdb.set_trace()
+        
         start_prefix = ''
+        
+        # In case DataParallel or alike was used. The model is the attribute `module`
+        if all(s.startswith('module.') for s in state_dict.keys()):
+            start_prefix += 'module.'
+        
         if not hasattr(model, 'transformer') and any(s.startswith('transformer.') for s in state_dict.keys()):
-            start_prefix = 'transformer.'
+            start_prefix += 'transformer.'
+        
         load(model, prefix=start_prefix)
 
         if len(missing_keys) > 0:

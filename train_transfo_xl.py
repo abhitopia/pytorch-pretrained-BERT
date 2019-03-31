@@ -154,7 +154,7 @@ def train(epoch, args, model, tr_iter, va_iter, optimizer, scheduler, logger, op
             if not best_val_loss or val_loss < best_val_loss:
                 if not args.debug:
                     with open(os.path.join(args.work_dir, 'model.pt'), 'wb') as f:
-                        torch.save(model, f)
+                        torch.save(model.state_dict(), f)
                     with open(os.path.join(args.work_dir, 'optimizer.pt'), 'wb') as f:
                         torch.save(optimizer.state_dict(), f)
                 best_val_loss = val_loss
